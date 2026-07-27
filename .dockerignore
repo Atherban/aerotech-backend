@@ -1,0 +1,13 @@
+target/
+.git/
+.gitignore
+.idea/
+*.md
+.DS_Store
+.mvn/wrapper/maven-wrapper.jar
+.ai/
+.env
+.env.example
+exports/
+uploads/
+Daily Check List CED.xlsx
