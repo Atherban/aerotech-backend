@@ -49,7 +49,7 @@ public class AuthService {
 
         User user = userRepository.findByEmployeeId(
                         request.getEmployeeId())
-                .orElseThrow();
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         String accessToken = jwtService.generateAccessToken(user);
 

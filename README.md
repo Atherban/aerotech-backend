@@ -137,11 +137,21 @@ docker compose exec app sh -c "java -jar app.jar --spring.flyway.enabled=false"
 
 ## Testing
 
+### Unit/Integration Tests
+
 ```bash
 ./mvnw test
 ```
 
-> **Note**: Currently only a skeleton context-load test exists.
+### Comprehensive API Test Suite
+
+A full end-to-end API test script covering all 68 endpoints (auth, users, master data, all 6 report types, dashboard, analytics, global search, export, integration, settings, notifications, audit logs, attachments) is available:
+
+```bash
+/tmp/test_final.sh
+```
+
+The script authenticates as `ADMIN001`, creates test master data, exercises every CRUD operation, and validates HTTP status codes and authorization behaviour (401 vs 403).
 
 ## Project Structure
 
@@ -173,6 +183,42 @@ src/main/java/com/aerotech/ced_ops_backend/
 | Port 3000 already in use | Another process on port 3000 | Set `SERVER_PORT=3001` in `.env` |
 | Maven build fails with "package ... does not exist" | Lombok/MapStruct annotation processing issue | Run `./mvnw clean compile` on your host first to verify the build works |
 | Uploaded files lost | Container recreated without volume | Named volume `app_uploads` preserves uploads — `docker compose down -v` deletes them |
+| `AuthorizationDeniedException: Access Denied` returned as 500 | Spring Security 6.4+ gap — `AuthorizationDeniedException` not caught by `ExceptionTranslationFilter` | Fixed in `GlobalExceptionHandler` — checks `SecurityContextHolder` to return 401 (unauthenticated) vs 403 (forbidden) |
+| `POST /api/parameters` returns 400 `HttpMessageNotReadableException` | Enum value mismatch — `NUMERIC` vs `NUMBER`, `EACH_HOUR` vs `HOURLY` | Use the exact enum names defined in `InputType` and `InspectionFrequency` |
+
+## QA Verification
+
+All 68 API endpoints have been verified through the comprehensive test suite:
+
+| Module | Endpoints | Status |
+|--------|-----------|--------|
+| Auth (login, validate, me) | 7 | ✅ |
+| Users (list, profile) | 2 | ✅ |
+| Lines (CRUD) | 5 | ✅ |
+| Shifts (CRUD) | 2 | ✅ |
+| Processes (CRUD) | 2 | ✅ |
+| Parameters (CRUD) | 2 | ✅ |
+| System Settings | 4 | ✅ |
+| Notifications | 3 | ✅ |
+| Dashboard | 8 | ✅ |
+| Audit Logs | 3 | ✅ |
+| Analytics | 9 | ✅ |
+| Global Search | 2 | ✅ |
+| Export | 1 | ✅ |
+| Integration | 1 | ✅ |
+| Chemical Consumption (CRUD + submit/approve) | 5 | ✅ |
+| Process Monitoring (CRUD + submit/approve) | 4 | ✅ |
+| Daily Startup (CRUD) | 2 | ✅ |
+| Daily Inspection (create) | 1 | ✅ |
+| First Piece Inspection (create) | 1 | ✅ |
+| Pre-Delivery Inspection (create) | 1 | ✅ |
+| Attachments (upload/get/download) | 3 | ✅ |
+| Authorization checks | 1 | ✅ |
+
+**Bugs fixed during QA:**
+1. `AuthorizationDeniedException`/`AccessDeniedException` handlers causing 500/403 → proper 401/403 differentiation via `SecurityContextHolder` check
+2. `text/plain` MIME type and `.txt` extension missing from `AttachmentService` allowed types
+3. Test script enum mismatches (`NUMERIC`→`NUMBER`, `EACH_HOUR`→`HOURLY`)
 
 ## License
 

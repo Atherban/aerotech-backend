@@ -46,12 +46,12 @@ public class GlobalSearchQueryBuilder {
 
     private static final String COUNT_SELECT = "SELECT COUNT(*) " +
             "FROM (" +
-            "SELECT id FROM process_monitoring_reports " +
-            "UNION ALL SELECT id FROM chemical_consumption_reports " +
-            "UNION ALL SELECT id FROM daily_startup_reports " +
-            "UNION ALL SELECT id FROM first_piece_inspection_reports " +
-            "UNION ALL SELECT id FROM daily_inspection_reports " +
-            "UNION ALL SELECT id FROM pre_delivery_inspection_reports " +
+            "SELECT id, shift_id, line_id, created_by, approved_by FROM process_monitoring_reports " +
+            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM chemical_consumption_reports " +
+            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM daily_startup_reports " +
+            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM first_piece_inspection_reports " +
+            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM daily_inspection_reports " +
+            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM pre_delivery_inspection_reports " +
             ") r " +
             "LEFT JOIN shifts s ON s.id = r.shift_id " +
             "LEFT JOIN line_master l ON l.id = r.line_id " +

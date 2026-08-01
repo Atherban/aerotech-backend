@@ -24,7 +24,7 @@ public class UpdateUserRequest {
     private String mobileNumber;
 
     @NotBlank(message = "Role is required")
-    @Schema(description = "User role", example = "OPERATOR", allowableValues = {"SUPER_ADMIN", "ADMIN", "OPERATOR", "INSPECTOR"})
+    @Schema(description = "User role", example = "OPERATOR", allowableValues = {"SUPER_ADMIN", "ADMIN", "OPERATOR"})
     private String role;
 
 }

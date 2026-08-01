@@ -75,6 +75,14 @@ public class SecurityConfig {
                         .permitAll()
 
                         /*
+                         * User profile and password change - any authenticated user
+                         */
+                        .requestMatchers(HttpMethod.GET, "/api/users/profile")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/users/change-password")
+                        .authenticated()
+
+                        /*
                          * Super Admin
                          */
                         .requestMatchers(HttpMethod.POST, "/api/users")

@@ -469,8 +469,17 @@ public class AnalyticsService {
     @SuppressWarnings("unchecked")
     private List<ChartDataPoint> aggregateWithJoin(String from, String fkColumn,
                                                    String joinTable, String nameColumn) {
-        String sql = "SELECT j." + nameColumn + ", COUNT(*) " + from +
+        // from contains "FROM (...) r WHERE 1=1 ...", extract the part before WHERE
+        String whereClause = "";
+        String baseFrom = from;
+        int whereIdx = from.indexOf(" WHERE ");
+        if (whereIdx >= 0) {
+            whereClause = from.substring(whereIdx);
+            baseFrom = from.substring(0, whereIdx);
+        }
+        String sql = "SELECT j." + nameColumn + ", COUNT(*) " + baseFrom +
                 " JOIN " + joinTable + " j ON j.id = " + fkColumn +
+                whereClause +
                 " GROUP BY j." + nameColumn + " ORDER BY COUNT(*) DESC";
         Query query = entityManager.createNativeQuery(sql);
         List<Object[]> rows = query.getResultList();

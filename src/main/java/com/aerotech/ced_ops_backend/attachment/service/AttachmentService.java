@@ -55,12 +55,14 @@ public class AttachmentService {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.ms-excel",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "text/csv"
+            "text/csv",
+            "text/plain"
     );
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "jpg", "jpeg", "png", "webp",
-            "pdf", "doc", "docx", "xls", "xlsx", "csv"
+            "pdf", "doc", "docx", "xls", "xlsx", "csv",
+            "txt"
     );
 
     @Transactional

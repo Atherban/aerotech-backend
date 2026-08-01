@@ -29,8 +29,7 @@ public class DataSeeder implements CommandLineRunner {
             List<Role> roles = List.of(
                     Role.builder().name("SUPER_ADMIN").description("Super Administrator").build(),
                     Role.builder().name("ADMIN").description("Administrator").build(),
-                    Role.builder().name("OPERATOR").description("Operator").build(),
-                    Role.builder().name("INSPECTOR").description("Inspector").build()
+                    Role.builder().name("OPERATOR").description("Operator").build()
             );
             roleRepository.saveAll(roles);
             log.info("Seeded {} roles", roles.size());
