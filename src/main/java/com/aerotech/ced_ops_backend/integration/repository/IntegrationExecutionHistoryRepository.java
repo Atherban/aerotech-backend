@@ -11,5 +11,7 @@ public interface IntegrationExecutionHistoryRepository extends JpaRepository<Int
 
     Page<IntegrationExecutionHistory> findByIntegrationIdOrderByCreatedAtDesc(Long integrationId, Pageable pageable);
 
+    void deleteByIntegrationId(Long integrationId);
+
     Page<IntegrationExecutionHistory> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

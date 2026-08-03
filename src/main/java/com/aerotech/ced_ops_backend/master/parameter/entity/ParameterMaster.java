@@ -3,7 +3,7 @@ package com.aerotech.ced_ops_backend.master.parameter.entity;
 import com.aerotech.ced_ops_backend.common.entity.BaseEntity;
 import com.aerotech.ced_ops_backend.common.enums.InputType;
 import com.aerotech.ced_ops_backend.common.enums.InspectionFrequency;
-import com.aerotech.ced_ops_backend.master.process.entity.ProcessMaster;
+import com.aerotech.ced_ops_backend.common.enums.ReportType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -11,7 +11,7 @@ import java.math.BigDecimal;
 
 @Entity
 @Table(name = "parameter_master", indexes = {
-    @Index(name = "idx_parameter_master_process_id", columnList = "process_id")
+    @Index(name = "idx_parameter_master_report_type", columnList = "report_type")
 })
 @Getter
 @Setter
@@ -20,9 +20,9 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class ParameterMaster extends BaseEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "process_id", nullable = false)
-    private ProcessMaster process;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "report_type", nullable = false, length = 50)
+    private ReportType reportType;
 
     @Column(nullable = false, length = 150)
     private String parameterName;
@@ -50,6 +50,13 @@ public class ParameterMaster extends BaseEntity {
     @Builder.Default
     @Column(nullable = false)
     private Boolean mandatory = true;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean visible = true;
+
+    @Column(length = 255)
+    private String defaultValue;
 
     @Column(nullable = false)
     private Integer displayOrder;

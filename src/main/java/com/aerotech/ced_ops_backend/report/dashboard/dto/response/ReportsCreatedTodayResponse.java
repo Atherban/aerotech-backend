@@ -15,7 +15,7 @@ import lombok.Setter;
 @Schema(description = "Number of reports created today")
 public class ReportsCreatedTodayResponse {
 
-    @Schema(description = "Number of reports created today", example = "5")
+    @Schema(description = "Number of reports created today", example = "5", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

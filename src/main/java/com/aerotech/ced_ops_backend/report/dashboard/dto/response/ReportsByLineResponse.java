@@ -15,13 +15,13 @@ import lombok.Setter;
 @Schema(description = "Report count grouped by production line")
 public class ReportsByLineResponse {
 
-    @Schema(description = "ID of the production line", example = "1")
+    @Schema(description = "ID of the production line", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long lineId;
 
-    @Schema(description = "Production line name", example = "Line A")
+    @Schema(description = "Production line name", example = "Line A", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String lineName;
 
-    @Schema(description = "Number of reports for this line", example = "40")
+    @Schema(description = "Number of reports for this line", example = "40", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

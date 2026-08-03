@@ -17,13 +17,13 @@ import java.util.List;
 @Schema(description = "Response containing line performance analytics")
 public class LinePerformanceResponse {
 
-    @Schema(description = "Reports grouped by line")
+    @Schema(description = "Reports grouped by line", example = "[{\"label\":\"LINE_1\",\"value\":200}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByLine;
 
-    @Schema(description = "Rejections grouped by line")
+    @Schema(description = "Rejections grouped by line", example = "[{\"label\":\"LINE_1\",\"value\":15}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> rejectionsByLine;
 
-    @Schema(description = "Approval rate grouped by line")
+    @Schema(description = "Approval rate grouped by line", example = "[{\"label\":\"LINE_1\",\"value\":92}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> approvalRateByLine;
 
 }

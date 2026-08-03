@@ -14,22 +14,22 @@ public class UpdateIntegrationRequest {
 
     @NotBlank(message = "Integration name must not be blank")
     @Size(max = 200, message = "Integration name must not exceed 200 characters")
-    @Schema(description = "Integration display name", example = "Production Webhook Updated")
+    @Schema(description = "Integration display name", example = "Production Webhook Updated", requiredMode = Schema.RequiredMode.REQUIRED)
     private String name;
 
     @Size(max = 1000, message = "Description must not exceed 1000 characters")
-    @Schema(description = "Integration description", example = "Updated description")
+    @Schema(description = "Integration description", example = "Updated description", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String description;
 
     @NotBlank(message = "Configuration JSON must not be blank")
-    @Schema(description = "Configuration JSON (use URL for webhook, credentials for others)")
+    @Schema(description = "Configuration JSON (use URL for webhook, credentials for others)", example = "{\"url\":\"https://example.com/hook\"}", requiredMode = Schema.RequiredMode.REQUIRED)
     private String configJson;
 
     @Min(value = 0, message = "Retry count must be non-negative")
-    @Schema(description = "Number of retry attempts", example = "5")
+    @Schema(description = "Number of retry attempts", example = "5", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Integer retryCount;
 
     @Min(value = 1, message = "Timeout must be at least 1 second")
-    @Schema(description = "Timeout in seconds", example = "60")
+    @Schema(description = "Timeout in seconds", example = "60", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Integer timeoutSeconds;
 }

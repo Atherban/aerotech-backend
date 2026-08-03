@@ -1,19 +1,14 @@
 package com.aerotech.ced_ops_backend.report.chemical.service;
 
-import com.aerotech.ced_ops_backend.common.enums.ReportStatus;
+import com.aerotech.ced_ops_backend.common.enums.InspectionResult;
 import com.aerotech.ced_ops_backend.common.enums.ReportType;
-import com.aerotech.ced_ops_backend.common.exception.BadRequestException;
-import com.aerotech.ced_ops_backend.common.exception.ResourceNotFoundException;
 import com.aerotech.ced_ops_backend.common.service.ValidationService;
 import com.aerotech.ced_ops_backend.common.util.ReportNumberGenerator;
-import com.aerotech.ced_ops_backend.master.line.entity.Line;
 import com.aerotech.ced_ops_backend.master.line.repository.LineRepository;
 import com.aerotech.ced_ops_backend.master.parameter.entity.ParameterMaster;
 import com.aerotech.ced_ops_backend.master.parameter.repository.ParameterMasterRepository;
-import com.aerotech.ced_ops_backend.master.shift.entity.Shift;
-import com.aerotech.ced_ops_backend.master.shift.repository.ShiftRepository;
+import com.aerotech.ced_ops_backend.master.shift.service.ShiftService;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.ApproveChemicalConsumptionRequest;
-import com.aerotech.ced_ops_backend.report.chemical.dto.request.ChemicalConsumptionEntryRequest;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.CreateChemicalConsumptionRequest;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.SubmitChemicalConsumptionRequest;
 import com.aerotech.ced_ops_backend.report.chemical.dto.response.ChemicalConsumptionResponse;
@@ -22,276 +17,174 @@ import com.aerotech.ced_ops_backend.report.chemical.entity.ChemicalConsumptionRe
 import com.aerotech.ced_ops_backend.report.chemical.mapper.ChemicalConsumptionMapper;
 import com.aerotech.ced_ops_backend.report.chemical.repository.ChemicalConsumptionEntryRepository;
 import com.aerotech.ced_ops_backend.report.chemical.repository.ChemicalConsumptionReportRepository;
-import com.aerotech.ced_ops_backend.user.entity.User;
+import com.aerotech.ced_ops_backend.report.support.AbstractReportService;
+import com.aerotech.ced_ops_backend.report.support.ReportFilterRequest;
+import com.aerotech.ced_ops_backend.common.response.PageResponse;
 import com.aerotech.ced_ops_backend.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Transactional
-@Slf4j
-public class ChemicalConsumptionService {
+public class ChemicalConsumptionService
+        extends AbstractReportService<ChemicalConsumptionReport, ChemicalConsumptionEntry, ChemicalConsumptionResponse> {
 
     private final ChemicalConsumptionReportRepository reportRepository;
 
     private final ChemicalConsumptionEntryRepository entryRepository;
 
-    private final ValidationService validationService;
-
-    private final ShiftRepository shiftRepository;
-
-    private final LineRepository lineRepository;
-
-    private final ParameterMasterRepository parameterRepository;
-
-    private final UserRepository userRepository;
-
-    private final ReportNumberGenerator reportNumberGenerator;
-
     private final ChemicalConsumptionMapper mapper;
 
-    private User currentUser() {
-
-        Authentication authentication =
-                SecurityContextHolder.getContext().getAuthentication();
-
-        return userRepository.findByEmployeeId(authentication.getName())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found."));
-
+    public ChemicalConsumptionService(
+            ReportNumberGenerator reportNumberGenerator,
+            ValidationService validationService,
+            ShiftService shiftService,
+            LineRepository lineRepository,
+            ParameterMasterRepository parameterRepository,
+            UserRepository userRepository,
+            ChemicalConsumptionReportRepository reportRepository,
+            ChemicalConsumptionEntryRepository entryRepository,
+            ChemicalConsumptionMapper mapper
+    ) {
+        super(reportNumberGenerator, validationService, shiftService, lineRepository, parameterRepository, userRepository);
+        this.reportRepository = reportRepository;
+        this.entryRepository = entryRepository;
+        this.mapper = mapper;
     }
 
-    private Shift getShift(Long id) {
-
-        return shiftRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Shift not found."));
-
+    @Override
+    protected ReportType reportType() {
+        return ReportType.CHEMICAL_CONSUMPTION;
     }
 
-    private Line getLine(Long id) {
-
-        return lineRepository.findById(id)
+    @Override
+    protected ChemicalConsumptionReport getReportOrThrow(Long id) {
+        return reportRepository.findByIdWithDetails(id)
                 .orElseThrow(() ->
-                        new ResourceNotFoundException("Line not found."));
-
+                        new com.aerotech.ced_ops_backend.common.exception.ResourceNotFoundException(
+                                reportLabel() + " report not found."));
     }
 
-    private ParameterMaster getParameter(Long id) {
-
-        return parameterRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Parameter not found."));
-
+    @Override
+    protected List<ChemicalConsumptionReport> findReportsWithDetails() {
+        return reportRepository.findAllWithDetails();
     }
 
-    private String nextReportNumber() {
+    @Override
+    protected ChemicalConsumptionReport saveReport(ChemicalConsumptionReport report) {
+        return reportRepository.save(report);
+    }
 
-        long sequence = reportRepository.count() + 1;
+    @Override
+    protected void deleteReport(ChemicalConsumptionReport report) {
+        reportRepository.delete(report);
+    }
 
-        return reportNumberGenerator.generate(
-                ReportType.CHEMICAL_CONSUMPTION,
-                sequence
-        );
+    @Override
+    protected long reportCount() {
+        return reportRepository.count();
+    }
 
+    @Override
+    protected List<ChemicalConsumptionEntry> entriesOf(ChemicalConsumptionReport report) {
+        return entryRepository.findByReport(report);
+    }
+
+    @Override
+    protected Map<Long, List<ChemicalConsumptionEntry>> entriesGroupedByReport(
+            List<Long> reportIds
+    ) {
+        return entryRepository.findByReportIdIn(reportIds)
+                .stream()
+                .collect(Collectors.groupingBy(entry -> entry.getReport().getId()));
+    }
+
+    @Override
+    protected List<ChemicalConsumptionEntry> saveEntries(List<ChemicalConsumptionEntry> entries) {
+        return entryRepository.saveAll(entries);
+    }
+
+    @Override
+    protected void deleteEntriesByReportId(Long reportId) {
+        entryRepository.deleteByReportId(reportId);
+    }
+
+    @Override
+    protected ChemicalConsumptionResponse toResponse(
+            ChemicalConsumptionReport report,
+            List<ChemicalConsumptionEntry> entries
+    ) {
+        return mapper.toResponse(report, entries);
+    }
+
+    @Override
+    protected ChemicalConsumptionEntry newEntry(
+            ChemicalConsumptionReport report,
+            ParameterMaster parameter,
+            String observedValue,
+            InspectionResult result,
+            String remark
+    ) {
+        return ChemicalConsumptionEntry.builder()
+                .report(report)
+                .parameter(parameter)
+                .observedValue(observedValue)
+                .inspectionResult(result)
+                .remark(remark)
+                .build();
     }
 
     public ChemicalConsumptionResponse create(CreateChemicalConsumptionRequest request) {
 
         ChemicalConsumptionReport report = new ChemicalConsumptionReport();
 
-        report.setReportNumber(nextReportNumber());
-        report.setReportType(ReportType.CHEMICAL_CONSUMPTION);
-        report.setReportDate(request.getReportDate());
-        report.setShift(getShift(request.getShiftId()));
-        report.setLine(getLine(request.getLineId()));
-        report.setStatus(ReportStatus.DRAFT);
-        report.setCreatedBy(currentUser());
-        report.setRemarks(request.getRemarks());
-
-        report = reportRepository.save(report);
-
-        ChemicalConsumptionReport savedReport = report;
-
-        List<ChemicalConsumptionEntry> entries = request.getEntries()
-                .stream()
-                .map(entryRequest -> buildEntry(savedReport, entryRequest))
-                .toList();
-
-        entries = entryRepository.saveAll(entries);
-
-        log.info("Chemical consumption report created: {}", report.getReportNumber());
-
-        return mapper.toResponse(report, entries);
-
+        return doCreateReport(
+                report,
+                request.getReportDate(),
+                request.getShiftId(),
+                request.getLineId(),
+                request.getRemarks(),
+                savedReport -> request.getEntries()
+                        .stream()
+                        .map(entry -> buildEntry(
+                                savedReport,
+                                entry.getParameterId(),
+                                entry.getObservedValue(),
+                                entry.getRemark()))
+                        .toList()
+        );
     }
 
-    @Transactional(readOnly = true)
     public List<ChemicalConsumptionResponse> getAll() {
-
-        List<ChemicalConsumptionReport> reports = reportRepository.findAllWithDetails();
-        List<Long> reportIds = reports.stream()
-                .map(ChemicalConsumptionReport::getId)
-                .toList();
-
-        if (reportIds.isEmpty()) {
-            return List.of();
-        }
-
-        Map<Long, List<ChemicalConsumptionEntry>> entriesByReportId = entryRepository
-                .findByReportIdIn(reportIds)
-                .stream()
-                .collect(Collectors.groupingBy(entry -> entry.getReport().getId()));
-
-        return reports.stream()
-                .map(report -> mapper.toResponse(
-                        report,
-                        entriesByReportId.getOrDefault(report.getId(), List.of())
-                ))
-                .toList();
-
+        return doGetAll();
     }
 
-    @Transactional(readOnly = true)
+    public PageResponse<ChemicalConsumptionResponse> search(ReportFilterRequest filter) {
+        return doSearch(filter);
+    }
+
     public ChemicalConsumptionResponse getById(Long id) {
-
-        ChemicalConsumptionReport report = getReport(id);
-
-        return mapper.toResponse(
-                report,
-                entryRepository.findByReport(report)
-        );
-
+        return doGetById(id);
     }
 
-    public ChemicalConsumptionResponse submit(
-            Long id,
-            SubmitChemicalConsumptionRequest request
-    ) {
-
-        ChemicalConsumptionReport report = getReport(id);
-
-        if (report.getStatus() != ReportStatus.DRAFT) {
-            throw new BadRequestException("Only draft reports can be submitted.");
-        }
-
-        report.setStatus(ReportStatus.SUBMITTED);
-
-        if (request.getRemarks() != null) {
-            report.setRemarks(request.getRemarks());
-        }
-
-        report = reportRepository.save(report);
-
-        log.info("Chemical consumption report submitted: {}", report.getReportNumber());
-
-        return mapper.toResponse(
-                report,
-                entryRepository.findByReport(report)
-        );
-
+    public ChemicalConsumptionResponse submit(Long id, SubmitChemicalConsumptionRequest request) {
+        return doSubmit(id, request::getRemarks);
     }
 
-    public ChemicalConsumptionResponse approve(
-            Long id,
-            ApproveChemicalConsumptionRequest request
-    ) {
-
-        return completeApproval(id, request, ReportStatus.APPROVED);
-
+    public ChemicalConsumptionResponse approve(Long id, ApproveChemicalConsumptionRequest request) {
+        return doApprove(id, request::getRemarks);
     }
 
-    public ChemicalConsumptionResponse reject(
-            Long id,
-            ApproveChemicalConsumptionRequest request
-    ) {
-
-        return completeApproval(id, request, ReportStatus.REJECTED);
-
-    }
-
-    private ChemicalConsumptionResponse completeApproval(
-            Long id,
-            ApproveChemicalConsumptionRequest request,
-            ReportStatus status
-    ) {
-
-        ChemicalConsumptionReport report = getReport(id);
-        if (report.getStatus() != ReportStatus.SUBMITTED) {
-            throw new BadRequestException("Only submitted reports can be approved or rejected.");
-        }
-
-        report.setStatus(status);
-        report.setApprovedBy(currentUser());
-        report.setApprovedAt(LocalDateTime.now());
-
-        if (request.getRemarks() != null) {
-            report.setRemarks(request.getRemarks());
-        }
-
-        report = reportRepository.save(report);
-
-        log.info("Chemical consumption report {} by {}: {}", report.getStatus(), currentUser().getEmployeeId(), report.getReportNumber());
-
-        return mapper.toResponse(
-                report,
-                entryRepository.findByReport(report)
-        );
-
+    public ChemicalConsumptionResponse reject(Long id, ApproveChemicalConsumptionRequest request) {
+        return doReject(id, request::getRemarks);
     }
 
     public void delete(Long id) {
-
-        ChemicalConsumptionReport report = getReport(id);
-        if (report.getStatus() != ReportStatus.DRAFT) {
-            throw new BadRequestException("Only draft reports can be deleted.");
-        }
-
-        entryRepository.deleteByReportId(id);
-        reportRepository.delete(report);
-
-        log.info("Chemical consumption report deleted: {}", report.getReportNumber());
-
-    }
-
-    private ChemicalConsumptionReport getReport(Long id) {
-
-        return reportRepository.findByIdWithDetails(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Chemical consumption report not found."));
-
-    }
-
-    private ChemicalConsumptionEntry buildEntry(
-            ChemicalConsumptionReport report,
-            ChemicalConsumptionEntryRequest request
-    ) {
-
-        ParameterMaster parameter = getParameter(request.getParameterId());
-
-        return ChemicalConsumptionEntry.builder()
-                .report(report)
-                .parameter(parameter)
-                .observedValue(request.getObservedValue())
-                .inspectionResult(
-                        validationService.validate(
-                                parameter,
-                                request.getObservedValue()
-                        )
-                )
-                .remark(request.getRemark())
-                .build();
-
+        doDelete(id);
     }
 
 }

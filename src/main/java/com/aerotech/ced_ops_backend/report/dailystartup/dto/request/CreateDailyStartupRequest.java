@@ -1,5 +1,6 @@
 package com.aerotech.ced_ops_backend.report.dailystartup.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -17,22 +18,27 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Request payload for creating a Daily Startup report")
 public class CreateDailyStartupRequest {
 
     @NotNull(message = "Report date is required")
+    @Schema(description = "Date of the startup report", example = "2025-01-15", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDate reportDate;
 
-    @NotNull(message = "Shift ID is required")
+    @Schema(description = "ID of the shift. Omitted to auto-detect from current time", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long shiftId;
 
     @NotNull(message = "Line ID is required")
+    @Schema(description = "ID of the production line", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
     private Long lineId;
 
     @jakarta.validation.constraints.Size(max = 1000, message = "Remarks must not exceed 1000 characters")
+    @Schema(description = "Additional remarks", example = "Startup completed successfully", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remarks;
 
     @Valid
     @NotEmpty(message = "At least one entry is required")
+    @Schema(description = "List of startup check entries", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<DailyStartupEntryRequest> entries;
 
 }

@@ -4,7 +4,7 @@ import java.util.List;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "Categories for grouping system settings")
+@Schema(description = "Categories for grouping system settings. Values: GENERAL - General system settings; REPORT_SETTINGS - Report-related settings; NOTIFICATION_SETTINGS - Notification-related settings; ATTACHMENT_SETTINGS - Attachment-related settings; SECURITY_SETTINGS - Security-related settings; DASHBOARD_SETTINGS - Dashboard-related settings")
 public enum SettingCategory {
     GENERAL, // General system settings
     REPORT_SETTINGS, // Report-related settings

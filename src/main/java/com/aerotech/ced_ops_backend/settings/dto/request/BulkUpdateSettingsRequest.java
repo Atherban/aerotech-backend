@@ -1,6 +1,5 @@
 package com.aerotech.ced_ops_backend.settings.dto.request;
 
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -17,8 +16,7 @@ public class BulkUpdateSettingsRequest {
 
     @Valid
     @NotEmpty(message = "Settings list must not be empty")
-    @Parameter(description = "List of settings to update")
-    @Schema(description = "List of settings to update")
+    @Schema(description = "List of settings to update", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<BulkUpdateItem> settings;
 
     @Getter
@@ -27,13 +25,11 @@ public class BulkUpdateSettingsRequest {
     public static class BulkUpdateItem {
 
         @NotBlank(message = "Setting key must not be blank")
-        @Parameter(description = "Setting key")
-        @Schema(description = "Setting key", example = "app.maintenance_mode")
+        @Schema(description = "Setting key", example = "app.maintenance_mode", requiredMode = Schema.RequiredMode.REQUIRED)
         private String settingKey;
 
         @NotBlank(message = "Setting value must not be blank")
-        @Parameter(description = "New value")
-        @Schema(description = "New value", example = "true")
+        @Schema(description = "New value", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
         private String settingValue;
     }
 

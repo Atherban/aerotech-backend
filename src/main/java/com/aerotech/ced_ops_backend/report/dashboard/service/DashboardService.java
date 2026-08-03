@@ -1,7 +1,9 @@
 package com.aerotech.ced_ops_backend.report.dashboard.service;
 
+import com.aerotech.ced_ops_backend.report.dashboard.dto.response.ApprovalSummaryResponse;
 import com.aerotech.ced_ops_backend.report.dashboard.dto.response.DashboardSummaryResponse;
 import com.aerotech.ced_ops_backend.report.dashboard.dto.response.MonthlyReportStatisticsResponse;
+import com.aerotech.ced_ops_backend.report.dashboard.dto.response.RecentActivityResponse;
 import com.aerotech.ced_ops_backend.report.dashboard.dto.response.RecentReportResponse;
 import com.aerotech.ced_ops_backend.report.dashboard.dto.response.ReportsByLineResponse;
 import com.aerotech.ced_ops_backend.report.dashboard.dto.response.ReportsByShiftResponse;
@@ -14,15 +16,13 @@ import jakarta.persistence.Query;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigInteger;
 import java.sql.Date;
 import java.sql.Timestamp;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -84,6 +84,10 @@ public class DashboardService {
             "SELECT 'FIRST_PIECE_INSPECTION' FROM first_piece_inspection_reports UNION ALL " +
             "SELECT 'DAILY_INSPECTION' FROM daily_inspection_reports UNION ALL " +
             "SELECT 'PDI' FROM pre_delivery_inspection_reports";
+
+    private static final String STATUS_APPROVED_AT_UNION = unionFor("status, approved_at");
+
+    private static final String ACTIVITY_UNION = activityUnion();
 
     public DashboardSummaryResponse getSummary() {
         Query query = entityManager.createNativeQuery(
@@ -249,6 +253,128 @@ public class DashboardService {
                     .build());
         }
         return result;
+    }
+
+    public ApprovalSummaryResponse getApprovalSummary() {
+        Query statusQuery = entityManager.createNativeQuery(
+                "SELECT status, COUNT(*) as count FROM (" + STATUS_UNION + ") combined GROUP BY status");
+        List<Object[]> statusRows = statusQuery.getResultList();
+
+        long pending = 0, approved = 0, rejected = 0;
+        for (Object[] row: statusRows) {
+            String status = (String) row[0];
+            long count = ((Number) row[1]).longValue();
+            switch (status) {
+                case "SUBMITTED" -> pending = count;
+                case "APPROVED" -> approved = count;
+                case "REJECTED" -> rejected = count;
+            }
+        }
+
+        Query todayQuery = entityManager.createNativeQuery(
+                "SELECT status, COUNT(*) as count FROM (" + STATUS_APPROVED_AT_UNION + ") combined " +
+                "WHERE approved_at::date = CURRENT_DATE " +
+                "AND status IN ('APPROVED', 'REJECTED') " +
+                "GROUP BY status");
+        List<Object[]> todayRows = todayQuery.getResultList();
+
+        long approvedToday = 0, rejectedToday = 0;
+        for (Object[] row: todayRows) {
+            String status = (String) row[0];
+            long count = ((Number) row[1]).longValue();
+            if ("APPROVED".equals(status)) {
+                approvedToday = count;
+            } else if ("REJECTED".equals(status)) {
+                rejectedToday = count;
+            }
+        }
+
+        long decided = approved + rejected;
+        double approvalRate = decided > 0
+                ? Math.round((approved * 10000.0) / decided) / 100.0
+                : 0.0;
+
+        return ApprovalSummaryResponse.builder()
+                .pendingApprovals(pending)
+                .approvedReports(approved)
+                .rejectedReports(rejected)
+                .approvedToday(approvedToday)
+                .rejectedToday(rejectedToday)
+                .approvalRate(approvalRate)
+                .build();
+    }
+
+    public List<RecentActivityResponse> getRecentActivity(int limit) {
+        String sql = """
+                SELECT r.id, r.report_number, r.report_type, r.action, r.status,
+                       COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id) as actor,
+                       r.event_time
+                FROM (
+                """ + ACTIVITY_UNION + """
+                ) r
+                LEFT JOIN users u ON u.id = r.actor_id
+                ORDER BY r.event_time DESC
+                LIMIT :limit
+                """;
+        Query query = entityManager.createNativeQuery(sql);
+        query.setParameter("limit", limit);
+        List<Object[]> rows = query.getResultList();
+
+        List<RecentActivityResponse> result = new ArrayList<>();
+        for (Object[] row: rows) {
+            Timestamp ts = (Timestamp) row[6];
+            result.add(RecentActivityResponse.builder()
+                    .id(((Number) row[0]).longValue())
+                    .reportNumber((String) row[1])
+                    .reportType((String) row[2])
+                    .action((String) row[3])
+                    .status((String) row[4])
+                    .actor((String) row[5])
+                    .timestamp(ts != null ? ts.toLocalDateTime() : null)
+                    .build());
+        }
+        return result;
+    }
+
+    private static String unionFor(String projection) {
+        return reportTables()
+                .stream()
+                .map(table -> "SELECT " + projection + " FROM " + table)
+                .collect(Collectors.joining(" UNION ALL "));
+    }
+
+    private static List<String> reportTables() {
+        return List.of(
+                "process_monitoring_reports",
+                "chemical_consumption_reports",
+                "daily_startup_reports",
+                "first_piece_inspection_reports",
+                "daily_inspection_reports",
+                "pre_delivery_inspection_reports"
+        );
+    }
+
+    private static String activityUnion() {
+        Map<String, String> types = new LinkedHashMap<>();
+        types.put("process_monitoring_reports", "PROCESS_MONITORING");
+        types.put("chemical_consumption_reports", "CHEMICAL_CONSUMPTION");
+        types.put("daily_startup_reports", "DAILY_STARTUP");
+        types.put("first_piece_inspection_reports", "FIRST_PIECE_INSPECTION");
+        types.put("daily_inspection_reports", "DAILY_INSPECTION");
+        types.put("pre_delivery_inspection_reports", "PDI");
+
+        List<String> fragments = new ArrayList<>();
+        types.forEach((table, type) -> {
+            fragments.add("SELECT id, report_number, '" + type + "' as report_type, " +
+                    "'CREATED' as action, status::varchar as status, " +
+                    "created_by as actor_id, created_at as event_time FROM " + table);
+            fragments.add("SELECT id, report_number, '" + type + "', " +
+                    "CASE WHEN status = 'APPROVED' THEN 'APPROVED' ELSE 'REJECTED' END, " +
+                    "status::varchar, approved_by, approved_at FROM " + table +
+                    " WHERE approved_at IS NOT NULL");
+        });
+
+        return String.join(" UNION ALL ", fragments);
     }
 
 }

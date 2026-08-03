@@ -11,11 +11,11 @@ import java.util.Optional;
 public interface FirstPieceInspectionReportRepository
         extends JpaRepository<FirstPieceInspectionReport, Long> {
 
-    @EntityGraph(attributePaths = {"shift", "line", "process", "createdBy", "approvedBy"})
+    @EntityGraph(attributePaths = {"shift", "line", "createdBy", "approvedBy"})
     @Query("SELECT r FROM FirstPieceInspectionReport r ORDER BY r.id DESC")
     List<FirstPieceInspectionReport> findAllWithDetails();
 
-    @EntityGraph(attributePaths = {"shift", "line", "process", "createdBy", "approvedBy"})
+    @EntityGraph(attributePaths = {"shift", "line", "createdBy", "approvedBy"})
     @Query("SELECT r FROM FirstPieceInspectionReport r WHERE r.id = :id")
     Optional<FirstPieceInspectionReport> findByIdWithDetails(Long id);
 

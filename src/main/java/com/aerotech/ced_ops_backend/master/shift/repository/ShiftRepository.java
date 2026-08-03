@@ -11,4 +11,6 @@ public interface ShiftRepository extends JpaRepository<Shift, Long> {
 
     List<Shift> findAllByOrderByNameAsc();
 
+    List<Shift> findAllByActiveTrueOrderByStartTimeAsc();
+
 }

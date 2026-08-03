@@ -2,22 +2,22 @@ package com.aerotech.ced_ops_backend.report.processmonitoring.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Request payload for approving a Process Monitoring report")
+@Schema(description = "Request payload for approving or rejecting a Process Monitoring report")
 public class ApproveReportRequest {
 
-    @jakarta.validation.constraints.NotNull(message = "Approval decision must be specified")
-    @Schema(description = "Approval decision", example = "true")
-    private Boolean approved;
-
     @Size(max = 1000, message = "Remarks must not exceed 1000 characters")
-    @Schema(description = "Approval remarks", example = "Approved - all processes within specification")
+    @Schema(description = "Approval or rejection remarks", example = "Approved - all checks passed", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remarks;
 
 }

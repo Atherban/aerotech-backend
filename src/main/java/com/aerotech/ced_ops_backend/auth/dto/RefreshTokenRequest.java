@@ -7,10 +7,11 @@ import lombok.Setter;
 
 @Getter
 @Setter
+@Schema(description = "Refresh token request payload")
 public class RefreshTokenRequest {
 
     @NotBlank(message = "Refresh token is required")
-    @Schema(description = "Refresh token issued during login", example = "dGhpcyBpcyBhIHJlZnJl...")
+    @Schema(description = "Refresh token issued during login", example = "dGhpcyBpcyBhIHJlZnJl...", requiredMode = Schema.RequiredMode.REQUIRED)
     private String refreshToken;
 
 }

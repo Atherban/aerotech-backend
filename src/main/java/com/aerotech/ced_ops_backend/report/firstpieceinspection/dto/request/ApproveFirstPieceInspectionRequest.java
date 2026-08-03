@@ -13,11 +13,11 @@ import lombok.Setter;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Request payload for approving a First Piece Inspection report")
+@Schema(description = "Request payload for approving or rejecting a First Piece Inspection report")
 public class ApproveFirstPieceInspectionRequest {
 
     @Size(max = 1000, message = "Remarks must not exceed 1000 characters")
-    @Schema(description = "Approval remarks", example = "Approved - all checks passed")
+    @Schema(description = "Approval or rejection remarks", example = "Approved - all checks passed", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remarks;
 
 }

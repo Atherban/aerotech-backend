@@ -15,10 +15,10 @@ import lombok.Setter;
 @Schema(description = "Report count grouped by report type")
 public class ReportsByTypeResponse {
 
-    @Schema(description = "Report type", example = "FIRST_PIECE_INSPECTION")
+    @Schema(description = "Report type", example = "FIRST_PIECE_INSPECTION", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String reportType;
 
-    @Schema(description = "Number of reports of this type", example = "50")
+    @Schema(description = "Number of reports of this type", example = "50", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

@@ -15,13 +15,13 @@ import lombok.Setter;
 @Schema(description = "Report count grouped by shift")
 public class ReportsByShiftResponse {
 
-    @Schema(description = "ID of the shift", example = "1")
+    @Schema(description = "ID of the shift", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long shiftId;
 
-    @Schema(description = "Shift name", example = "Morning")
+    @Schema(description = "Shift name", example = "Morning", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String shiftName;
 
-    @Schema(description = "Number of reports for this shift", example = "30")
+    @Schema(description = "Number of reports for this shift", example = "30", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

@@ -13,6 +13,7 @@ import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class JwtService {
@@ -35,6 +36,7 @@ public class JwtService {
 
         return Jwts.builder()
                 .subject(employeeId)
+                .id(UUID.randomUUID().toString())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis()+refreshExpiration))
                 .signWith(getSigningKey())

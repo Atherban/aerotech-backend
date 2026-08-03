@@ -17,16 +17,16 @@ import java.util.List;
 @Schema(description = "Response containing productivity KPI data")
 public class ProductivityKPIResponse {
 
-    @Schema(description = "KPI summary cards")
+    @Schema(description = "KPI summary cards", example = "[{\"label\":\"Reports per Day\",\"value\":\"42\",\"unit\":\"reports\",\"change\":\"+8%\",\"trend\":\"up\"}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<KPICard> kpiCards;
 
-    @Schema(description = "Reports submitted per day")
+    @Schema(description = "Reports submitted per day", example = "[{\"date\":\"2025-06-15\",\"value\":42}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> reportsPerDay;
 
-    @Schema(description = "Reports grouped by shift")
+    @Schema(description = "Reports grouped by shift", example = "[{\"label\":\"MORNING\",\"value\":180}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsPerShift;
 
-    @Schema(description = "Reports grouped by operator")
+    @Schema(description = "Reports grouped by operator", example = "[{\"label\":\"john.doe\",\"value\":120}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsPerOperator;
 
 }

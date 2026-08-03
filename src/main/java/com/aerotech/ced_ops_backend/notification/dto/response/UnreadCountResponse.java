@@ -15,7 +15,7 @@ import lombok.Setter;
 @Schema(description = "Response containing the unread notification count")
 public class UnreadCountResponse {
 
-    @Schema(description = "Number of unread notifications", example = "5")
+    @Schema(description = "Number of unread notifications", example = "5", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

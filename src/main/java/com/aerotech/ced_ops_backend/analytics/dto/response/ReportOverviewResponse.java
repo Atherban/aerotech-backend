@@ -17,19 +17,19 @@ import java.util.List;
 @Schema(description = "Response containing report overview analytics")
 public class ReportOverviewResponse {
 
-    @Schema(description = "Total number of reports", example = "500")
+    @Schema(description = "Total number of reports", example = "500", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long totalReports;
 
-    @Schema(description = "Reports grouped by type")
+    @Schema(description = "Reports grouped by type", example = "[{\"label\":\"FINAL_INSPECTION\",\"value\":300}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByType;
 
-    @Schema(description = "Reports grouped by status")
+    @Schema(description = "Reports grouped by status", example = "[{\"label\":\"APPROVED\",\"value\":350}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByStatus;
 
-    @Schema(description = "Reports grouped by shift")
+    @Schema(description = "Reports grouped by shift", example = "[{\"label\":\"MORNING\",\"value\":250}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByShift;
 
-    @Schema(description = "Reports grouped by line")
+    @Schema(description = "Reports grouped by line", example = "[{\"label\":\"LINE_1\",\"value\":200}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByLine;
 
 }

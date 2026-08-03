@@ -114,6 +114,7 @@ public class IntegrationService {
     @Transactional
     public void delete(Long id) {
         Integration integration = findIntegration(id);
+        historyRepository.deleteByIntegrationId(id);
         integrationRepository.delete(integration);
         log.info("Integration deleted: {} (id={})", integration.getName(), id);
     }

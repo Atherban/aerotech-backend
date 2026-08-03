@@ -9,22 +9,23 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Request payload for updating an existing user")
 public class UpdateUserRequest {
 
     @NotBlank(message = "First Name is required")
-    @Schema(description = "First name", example = "John")
+    @Schema(description = "First name", example = "John", requiredMode = Schema.RequiredMode.REQUIRED)
     private String firstName;
 
     @NotBlank(message = "Last Name is required")
-    @Schema(description = "Last name", example = "Doe")
+    @Schema(description = "Last name", example = "Doe", requiredMode = Schema.RequiredMode.REQUIRED)
     private String lastName;
 
     @Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid Mobile Number")
-    @Schema(description = "Mobile number (10 digits, starting with 6-9)", example = "9876543210")
+    @Schema(description = "Mobile number (10 digits, starting with 6-9)", example = "9876543210", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String mobileNumber;
 
     @NotBlank(message = "Role is required")
-    @Schema(description = "User role", example = "OPERATOR", allowableValues = {"SUPER_ADMIN", "ADMIN", "OPERATOR"})
+    @Schema(description = "User role", example = "OPERATOR", allowableValues = {"SUPER_ADMIN", "ADMIN", "OPERATOR"}, requiredMode = Schema.RequiredMode.REQUIRED)
     private String role;
 
 }

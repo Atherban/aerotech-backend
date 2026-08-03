@@ -10,12 +10,12 @@ import lombok.*;
 @AllArgsConstructor
 @Schema(description = "Standard API response wrapper")
 public class ApiResponse<T> {
-    @Schema(description = "Indicates if the request was successful", example = "true")
+    @Schema(description = "Indicates if the request was successful", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
     private boolean success;
 
-    @Schema(description = "Response message", example = "Operation completed successfully")
+    @Schema(description = "Response message", example = "Operation completed successfully", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String message;
 
-    @Schema(description = "Response payload")
+    @Schema(description = "Response payload", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private T data;
 }

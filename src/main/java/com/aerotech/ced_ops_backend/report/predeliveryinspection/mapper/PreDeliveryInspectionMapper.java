@@ -5,14 +5,16 @@ import com.aerotech.ced_ops_backend.report.predeliveryinspection.dto.response.Pr
 import com.aerotech.ced_ops_backend.report.predeliveryinspection.dto.response.PreDeliveryInspectionResponse;
 import com.aerotech.ced_ops_backend.report.predeliveryinspection.entity.PreDeliveryInspectionEntry;
 import com.aerotech.ced_ops_backend.report.predeliveryinspection.entity.PreDeliveryInspectionReport;
-import com.aerotech.ced_ops_backend.user.entity.User;
+import com.aerotech.ced_ops_backend.report.support.BaseReportMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class PreDeliveryInspectionMapper {
+public class PreDeliveryInspectionMapper
+        extends BaseReportMapper<PreDeliveryInspectionReport, PreDeliveryInspectionEntry, PreDeliveryInspectionResponse, PreDeliveryInspectionEntryResponse> {
 
+    @Override
     public PreDeliveryInspectionResponse toResponse(
             PreDeliveryInspectionReport report,
             List<PreDeliveryInspectionEntry> entries
@@ -42,23 +44,8 @@ public class PreDeliveryInspectionMapper {
 
     }
 
-    public List<PreDeliveryInspectionResponse> toResponseList(
-            List<PreDeliveryInspectionReport> reports
-    ) {
-
-        if (reports == null) {
-            return List.of();
-        }
-
-        return reports.stream()
-                .map(report -> toResponse(report, List.of()))
-                .toList();
-
-    }
-
-    public PreDeliveryInspectionEntryResponse toEntryResponse(
-            PreDeliveryInspectionEntry entry
-    ) {
+    @Override
+    protected PreDeliveryInspectionEntryResponse toSingleEntryResponse(PreDeliveryInspectionEntry entry) {
 
         if (entry == null) {
             return null;
@@ -69,9 +56,6 @@ public class PreDeliveryInspectionMapper {
         return PreDeliveryInspectionEntryResponse.builder()
                 .id(entry.getId())
                 .parameterId(parameter != null ? parameter.getId() : null)
-                .processName(parameter != null && parameter.getProcess() != null
-                        ? parameter.getProcess().getName()
-                        : null)
                 .parameterName(parameter != null ? parameter.getParameterName() : null)
                 .minValue(parameter != null ? parameter.getMinValue() : null)
                 .maxValue(parameter != null ? parameter.getMaxValue() : null)
@@ -80,30 +64,6 @@ public class PreDeliveryInspectionMapper {
                 .inspectionResult(entry.getInspectionResult())
                 .remark(entry.getRemark())
                 .build();
-
-    }
-
-    public List<PreDeliveryInspectionEntryResponse> toEntryResponseList(
-            List<PreDeliveryInspectionEntry> entries
-    ) {
-
-        if (entries == null) {
-            return List.of();
-        }
-
-        return entries.stream()
-                .map(this::toEntryResponse)
-                .toList();
-
-    }
-
-    private String fullName(User user) {
-
-        if (user == null) {
-            return null;
-        }
-
-        return (user.getFirstName() + " " + user.getLastName()).trim();
 
     }
 

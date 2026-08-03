@@ -26,8 +26,8 @@ public class OpenApiConfig {
                         .description(
                                 "RESTful API for the CED (Continuous Electro-Deposition) Operations management system. " +
                                 "This API provides endpoints for managing quality inspections, chemical consumption tracking, " +
-                                "daily startup and shutdown procedures, pre-delivery inspections, operator performance analytics, " +
-                                "and export functionality. It supports the full inspection lifecycle including creation, " +
+                                "daily startup and shutdown procedures, pre-delivery inspections, and operator performance analytics. " +
+                                "It supports the full inspection lifecycle including creation, " +
                                 "submission, approval workflows, and role-based access control.")
                         .contact(new Contact()
                                 .name("AeroTech Support")
@@ -46,7 +46,6 @@ public class OpenApiConfig {
                         new Tag().name("Daily Startup").description("Daily startup and shutdown procedure management"),
                         new Tag().name("Pre-Delivery Inspection").description("Pre-delivery inspection management"),
                         new Tag().name("Analytics").description("KPI dashboards and analytical reports"),
-                        new Tag().name("Export").description("Data export to PDF, Excel, and CSV formats"),
                         new Tag().name("Audit Logs").description("System audit trail and activity logging"),
                         new Tag().name("Notifications").description("User notification management"),
                         new Tag().name("Settings").description("System configuration and settings"),

@@ -17,16 +17,16 @@ import java.util.List;
 @Schema(description = "Search suggestions for autocomplete")
 public class SearchSuggestionsResponse {
 
-    @Schema(description = "List of report number suggestions", example = "[\"FPI-2025-0001\", \"FPI-2025-0002\"]")
+    @Schema(description = "List of report number suggestions", example = "[\"FPI-2025-0001\", \"FPI-2025-0002\"]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<String> reportNumbers;
 
-    @Schema(description = "List of employee name suggestions", example = "[\"John Doe\", \"Jane Smith\"]")
+    @Schema(description = "List of employee name suggestions", example = "[\"John Doe\", \"Jane Smith\"]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<String> employeeNames;
 
-    @Schema(description = "List of production line suggestions", example = "[\"Line A\", \"Line B\"]")
+    @Schema(description = "List of production line suggestions", example = "[\"Line A\", \"Line B\"]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<String> lines;
 
-    @Schema(description = "List of process suggestions", example = "[\"Machining\", \"Assembly\"]")
-    private List<String> processes;
+    @Schema(description = "List of parameter name suggestions", example = "[\"Bath Temperature\", \"Voltage\"]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private List<String> parameters;
 
 }

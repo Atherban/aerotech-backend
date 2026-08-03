@@ -3,6 +3,9 @@ package com.aerotech.ced_ops_backend.user.service;
 import com.aerotech.ced_ops_backend.auth.repository.RefreshTokenRepository;
 import com.aerotech.ced_ops_backend.common.exception.BadRequestException;
 import com.aerotech.ced_ops_backend.common.exception.ResourceNotFoundException;
+import com.aerotech.ced_ops_backend.common.pagination.PageableResolver;
+import com.aerotech.ced_ops_backend.common.pagination.SpecificationBuilder;
+import com.aerotech.ced_ops_backend.common.response.PageResponse;
 import com.aerotech.ced_ops_backend.role.entity.Role;
 import com.aerotech.ced_ops_backend.role.service.RoleService;
 import com.aerotech.ced_ops_backend.user.dto.*;
@@ -11,17 +14,33 @@ import com.aerotech.ced_ops_backend.user.mapper.UserMapper;
 import com.aerotech.ced_ops_backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
 @Slf4j
 public class UserService {
+
+    private static final Map<String, String> SORT_COLUMNS = Map.of(
+            "id", "id",
+            "employeeId", "employeeId",
+            "firstName", "firstName",
+            "lastName", "lastName",
+            "role", "role.name",
+            "active", "active",
+            "createdAt", "createdAt"
+    );
+
+    private static final String DEFAULT_SORT = "id";
 
     private final UserRepository userRepository;
     private final RoleService roleService;
@@ -39,7 +58,7 @@ public class UserService {
             throw new BadRequestException("Mobile number already exists");
         }
 
-        Role role = roleService.getRolebyName(request.getRole());
+        Role role = roleService.getRoleByName(request.getRole());
 
         User user = User.builder()
                 .employeeId(request.getEmployeeId())
@@ -64,6 +83,23 @@ public class UserService {
         return mapper.toResponseList(
                 userRepository.findAllByOrderByIdAsc()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<UserResponse> search(UserFilterRequest filter) {
+
+        Specification<User> spec = SpecificationBuilder.<User>builder()
+                .keyword(filter.getKeyword(),
+                        "employeeId", "firstName", "lastName", "mobileNumber")
+                .equals("role.name", filter.getRole())
+                .equals("active", filter.getActive())
+                .build();
+
+        Pageable pageable = PageableResolver.resolve(filter, SORT_COLUMNS, DEFAULT_SORT);
+
+        Page<User> page = userRepository.findAll(spec, pageable);
+
+        return PageResponse.from(page.map(mapper::toResponse));
     }
 
     @Transactional(readOnly = true)
@@ -98,7 +134,7 @@ public class UserService {
             throw new BadRequestException("Mobile number already exists");
         }
 
-        Role role = roleService.getRolebyName(request.getRole());
+        Role role = roleService.getRoleByName(request.getRole());
 
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());

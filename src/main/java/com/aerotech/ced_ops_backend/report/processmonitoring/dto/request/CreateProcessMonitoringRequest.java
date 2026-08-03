@@ -18,24 +18,23 @@ import java.util.List;
 public class CreateProcessMonitoringRequest {
 
     @NotNull(message = "Report date is required")
-    @Schema(description = "Date of the monitoring report", example = "2025-01-15")
+    @Schema(description = "Date of the monitoring report", example = "2025-01-15", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDate reportDate;
 
-    @NotNull(message = "Shift ID is required")
-    @Schema(description = "ID of the shift", example = "1")
+    @Schema(description = "ID of the shift. Omitted to auto-detect from current time", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long shiftId;
 
     @NotNull(message = "Line ID is required")
-    @Schema(description = "ID of the production line", example = "1")
+    @Schema(description = "ID of the production line", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
     private Long lineId;
 
     @jakarta.validation.constraints.Size(max = 1000, message = "Remarks must not exceed 1000 characters")
-    @Schema(description = "Additional remarks", example = "All processes running normally")
+    @Schema(description = "Additional remarks", example = "All processes running normally", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remarks;
 
     @Valid
     @NotEmpty(message = "At least one entry is required")
-    @Schema(description = "List of monitoring entries")
+    @Schema(description = "List of monitoring entries", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<ProcessMonitoringEntryRequest> entries;
 
 }

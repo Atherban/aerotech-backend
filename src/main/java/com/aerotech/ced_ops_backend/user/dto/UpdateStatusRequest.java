@@ -8,10 +8,11 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Request payload for updating a user's active status")
 public class UpdateStatusRequest {
 
     @NotNull(message = "Status is required")
-    @Schema(description = "New active status", example = "true")
+    @Schema(description = "New active status", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
     private Boolean active;
 
 }

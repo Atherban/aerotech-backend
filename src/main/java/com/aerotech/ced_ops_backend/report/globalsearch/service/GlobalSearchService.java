@@ -57,13 +57,13 @@ public class GlobalSearchService {
         List<String> reportNumbers = fetchReportNumberSuggestions(pattern);
         List<String> employeeNames = fetchEmployeeNameSuggestions(pattern);
         List<String> lines = fetchLineSuggestions(pattern);
-        List<String> processes = fetchProcessSuggestions(pattern);
+        List<String> parameters = fetchParameterSuggestions(pattern);
 
         return SearchSuggestionsResponse.builder()
                 .reportNumbers(reportNumbers)
                 .employeeNames(employeeNames)
                 .lines(lines)
-                .processes(processes)
+                .parameters(parameters)
                 .build();
     }
 
@@ -158,9 +158,11 @@ public class GlobalSearchService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<String> fetchProcessSuggestions(String pattern) {
+    private List<String> fetchParameterSuggestions(String pattern) {
         String sql = """
-                SELECT name FROM process_master WHERE name ILIKE :pattern ORDER BY name LIMIT 10
+                SELECT DISTINCT parameter_name FROM parameter_master
+                WHERE parameter_name ILIKE :pattern
+                ORDER BY parameter_name LIMIT 10
                 """;
         Query query = entityManager.createNativeQuery(sql);
         query.setParameter("pattern", pattern);

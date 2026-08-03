@@ -17,7 +17,7 @@ import lombok.Setter;
 public class SubmitPreDeliveryInspectionRequest {
 
     @Size(max = 1000, message = "Remarks must not exceed 1000 characters")
-    @Schema(description = "Submission remarks", example = "Report is ready for review")
+    @Schema(description = "Submission remarks", example = "Report is ready for review", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remarks;
 
 }

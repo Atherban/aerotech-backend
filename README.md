@@ -1,6 +1,48 @@
 # CED Ops Backend
 
-CED Operations Management System — a Spring Boot REST API for managing quality inspection reports, master data, analytics, and workflow in a manufacturing/operations environment.
+CED Operations Management System — a Spring Boot REST API that digitizes
+manufacturing quality-inspection and shop-floor reporting: master data
+configuration, six predefined report types, an approval workflow, dashboards,
+analytics, and global search.
+
+## Features
+
+- **Authentication & roles** — JWT access + refresh tokens, BCrypt, role-based
+  access control (SUPER_ADMIN / ADMIN / OPERATOR).
+- **Master data** — users, shifts (with automatic, overnight-aware shift
+  detection), production lines, and a fully configurable parameter catalog per
+  report type.
+- **Six standard report types** — Process Monitoring, Chemical Consumption,
+  Daily Startup Checklist, Daily Inspection, First Piece Inspection,
+  Pre-Delivery Inspection — all built on a shared report engine with a
+  consistent lifecycle.
+- **Approval workflow** — draft → submit → approve / reject with remarks.
+  **V1 limitation:** reports are created in one step and cannot be edited or
+  resumed afterwards; rejected reports cannot be edited/re-submitted (no report
+  update endpoint).
+- **Dashboard & analytics** — live overview, today's reports, pending
+  approvals, approval summary, recent activity, and KPI analytics.
+- **Global search** — one search across reports, users, and parameters.
+- **Unified pagination & filtering** — consistent list experience across every
+  module.
+- **Attachments, notifications, settings, integration center, audit logs** —
+  supporting platform modules.
+
+## Documentation Index
+
+| Document | Audience | Purpose |
+|----------|----------|---------|
+| [BUSINESS_FLOW.md](BUSINESS_FLOW.md) | Client, frontend, QA | Business functional specification — how the system is used (no implementation details) |
+| [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) | Backend, architects | Architecture, design decisions, report engine, database, security |
+| [API_DOCUMENTATION.md](API_DOCUMENTATION.md) | Backend, frontend, QA | Complete REST API reference — every endpoint, DTO, request/response |
+| [CURRENT_STATE.md](CURRENT_STATE.md) | All | Current implementation snapshot — what exists, limitations, pending work |
+| [FEATURES_ROADMAP.md](FEATURES_ROADMAP.md) | Product, all | V1 scope, completed features, future features, production roadmap |
+| [VERIFICATION_REPORT.md](VERIFICATION_REPORT.md) | QA, client | Business-workflow audit of the feature-complete V1 backend |
+| [CONSISTENCY_REPORT.md](CONSISTENCY_REPORT.md) | All | Documentation-vs-implementation consistency report (V1 capabilities, resolved contradictions, planned features) |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Ops | Deployment, environment variables, Docker Compose, production hardening |
+
+Suggested reading order: **README → BUSINESS_FLOW → PROJECT_BLUEPRINT →
+API_DOCUMENTATION → CURRENT_STATE → FEATURES_ROADMAP.**
 
 ## Tech Stack
 
@@ -14,13 +56,12 @@ CED Operations Management System — a Spring Boot REST API for managing quality
 | **Auth** | JWT (access + refresh tokens), BCrypt |
 | **API Docs** | SpringDoc OpenAPI 2.8.9 |
 | **Build** | Maven (Maven Wrapper) |
-| **Mappers** | MapStruct 1.6.3 |
-| **Exports** | Apache POI (Excel), OpenPDF (PDF) |
 | **Containerization** | Docker Compose |
 
 ## Quick Start (Docker Compose)
 
-This is the fastest way to get the full stack running. You only need Docker Desktop (or Docker + Docker Compose) — no Java or Maven installation required on your host.
+The fastest way to run the full stack. You only need Docker Desktop (or Docker +
+Docker Compose) — no Java or Maven installation required on your host.
 
 ```bash
 # 1. One-time setup — copy environment template
@@ -32,59 +73,64 @@ docker compose up --build
 
 The app starts at `http://localhost:3000`.
 
-**Swagger UI**: http://localhost:3000/swagger-ui.html
-**OpenAPI JSON**: http://localhost:3000/v3/api-docs
+- **Swagger UI:** http://localhost:3000/swagger-ui.html
+- **OpenAPI JSON:** http://localhost:3000/v3/api-docs
+- **API reference:** `API_DOCUMENTATION.md` (hand-maintained; mirrors the source). No `api-docs.json` snapshot is committed — the OpenAPI spec is generated at runtime by SpringDoc. To produce one: start the app and run `curl http://localhost:3000/v3/api-docs -o api-docs.json`.
 
 ## Prerequisites
 
 - **Docker Desktop** (macOS/Windows) or **Docker + Docker Compose** (Linux)
 - *(Optional)* Java 21 JDK + Maven 3.9+ for running outside Docker
-- IDE with Lombok plugin
 
-## Workflow
+## Folder Structure
 
-### Start
-```bash
-docker compose up --build
 ```
-Use `--build` on first run and after every code change. Omit it on subsequent starts if no code changed.
-
-### Stop (keep data)
-```bash
-docker compose down
-```
-
-### Stop and reset everything (delete database)
-```bash
-docker compose down -v
-```
-
-### View logs
-```bash
-docker compose logs -f          # both services
-docker compose logs -f app      # app only
-docker compose logs -f postgres # database only
+src/main/java/com/aerotech/ced_ops_backend/
+├── analytics/          # Aggregated metrics and dashboards
+├── attachment/         # File upload/download management
+├── audit/              # Audit logging (read model)
+├── auth/               # Authentication & authorization
+├── common/             # Base entities, enums, exceptions, config, pagination
+├── integration/        # External system connectors
+├── master/             # Master data (line, shift, parameter, report types)
+├── notification/       # User notifications
+├── report/             # Report engine + 6 report types + dashboard + search
+├── role/               # Role management
+├── security/           # JWT filter, security config, user details
+├── settings/           # System settings
+└── user/               # User management
 ```
 
-### Enter the app container
+## Running the Project
+
+### Start / Stop / Reset
+
 ```bash
-docker compose exec app sh
+docker compose up --build        # build + start (use --build on first run)
+docker compose down              # stop, keep data
+docker compose down -v           # stop and delete database + uploads
+docker compose logs -f app       # follow app logs
 ```
 
-### Rebuild after code changes
+### Run locally (without Docker)
+
 ```bash
-docker compose up --build
-```
-Docker caches Maven dependencies — only changed source files trigger recompilation.
+# 1. Start PostgreSQL
+docker compose up -d postgres
 
-### Rebuild after dependency changes (pom.xml)
+# 2. Build and run with Maven
+./mvnw spring-boot:run
+```
+
+### Tests
+
 ```bash
-docker compose build --no-cache app
+./mvnw test
 ```
 
-## Environment Variables
+### Environment Variables
 
-All settings are configured via `.env` (copy from `.env.example`). Variables and their defaults:
+All settings are configured via `.env` (copy from `.env.example`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -98,80 +144,31 @@ All settings are configured via `.env` (copy from `.env.example`). Variables and
 | `JWT_REFRESH_TOKEN_EXPIRATION` | `604800000` | Refresh token TTL (ms, 7 days) |
 | `SPRING_PROFILES_ACTIVE` | *(empty)* | Spring profile (e.g. `dev`) |
 
-> **Security**: Generate a real JWT secret for any non-local deployment:
+> **Security:** Generate a real JWT secret for any non-local deployment:
 > ```bash
 > openssl rand -base64 32
 > ```
-> Then update `JWT_SECRET` in `.env`.
-
-## Running Locally (without Docker)
-
-```bash
-# 1. Start PostgreSQL (Docker or local)
-docker compose up -d postgres
-
-# 2. Build and run with Maven
-./mvnw spring-boot:run
-```
-
-## API Documentation
-
-- **Swagger UI**: http://localhost:3000/swagger-ui.html
-- **OpenAPI JSON**: http://localhost:3000/v3/api-docs
 
 ## Database Migrations
 
-Schema is managed by Flyway. Migrations run automatically on startup.
-
-Migration files live in `src/main/resources/db/migration/`.
+Schema is managed by Flyway and migrations run automatically on startup.
+Migration files live in `src/main/resources/db/migration/`:
 
 ```bash
-# Check migration status from host
 ./mvnw flyway:info -Dflyway.url=jdbc:postgresql://localhost:5432/ced_ops \
                    -Dflyway.user=postgres \
                    -Dflyway.password=postgres
-
-# Check status from inside the container
-docker compose exec app sh -c "java -jar app.jar --spring.flyway.enabled=false"
 ```
 
-## Testing
+## Quality Status
 
-### Unit/Integration Tests
-
-```bash
-./mvnw test
-```
-
-### Comprehensive API Test Suite
-
-A full end-to-end API test script covering all 68 endpoints (auth, users, master data, all 6 report types, dashboard, analytics, global search, export, integration, settings, notifications, audit logs, attachments) is available:
-
-```bash
-/tmp/test_final.sh
-```
-
-The script authenticates as `ADMIN001`, creates test master data, exercises every CRUD operation, and validates HTTP status codes and authorization behaviour (401 vs 403).
-
-## Project Structure
-
-```
-src/main/java/com/aerotech/ced_ops_backend/
-├── analytics/          # Aggregated metrics and dashboards
-├── attachment/         # File upload/download management
-├── audit/              # Audit logging
-├── auth/               # Authentication & authorization
-├── common/             # Shared base entities, enums, exceptions, config
-├── export/             # Excel/PDF report export
-├── integration/        # External system connectors
-├── master/             # Master data (line, shift, process, parameter)
-├── notification/       # User notifications
-├── report/             # Quality inspection reports (6 types + dashboard + search)
-├── role/               # Role management
-├── security/           # JWT filter, security config, user details
-├── settings/           # System settings
-└── user/               # User management
-```
+- The business workflow of the feature-complete V1 backend was audited against
+  every documented capability per role: **42 of 43 (97.7%) fully implemented**.
+  The single gap is report **edit/resubmit** (no update endpoint yet — drafts
+  can't be edited/resumed and rejected reports can't be resubmitted). See
+  `VERIFICATION_REPORT.md` and `CURRENT_STATE.md`.
+- Default seeded Super Admin: `ADMIN001` / `admin123`. **Change this before
+  production.**
 
 ## Troubleshooting
 
@@ -179,46 +176,9 @@ src/main/java/com/aerotech/ced_ops_backend/
 |---------|-------------|-----|
 | `JWT_SECRET is required` | Missing `.env` file | `cp .env.example .env` |
 | App won't start, DB connection refused | PostgreSQL needs more time | Check `docker compose logs postgres`; the app waits for the DB health check automatically |
-| Port 5432 already in use | Another PostgreSQL is running on your machine | Set `POSTGRES_PORT=5433` in `.env` |
+| Port 5432 already in use | Another PostgreSQL is running | Set `POSTGRES_PORT=5433` in `.env` |
 | Port 3000 already in use | Another process on port 3000 | Set `SERVER_PORT=3001` in `.env` |
-| Maven build fails with "package ... does not exist" | Lombok/MapStruct annotation processing issue | Run `./mvnw clean compile` on your host first to verify the build works |
 | Uploaded files lost | Container recreated without volume | Named volume `app_uploads` preserves uploads — `docker compose down -v` deletes them |
-| `AuthorizationDeniedException: Access Denied` returned as 500 | Spring Security 6.4+ gap — `AuthorizationDeniedException` not caught by `ExceptionTranslationFilter` | Fixed in `GlobalExceptionHandler` — checks `SecurityContextHolder` to return 401 (unauthenticated) vs 403 (forbidden) |
-| `POST /api/parameters` returns 400 `HttpMessageNotReadableException` | Enum value mismatch — `NUMERIC` vs `NUMBER`, `EACH_HOUR` vs `HOURLY` | Use the exact enum names defined in `InputType` and `InspectionFrequency` |
-
-## QA Verification
-
-All 68 API endpoints have been verified through the comprehensive test suite:
-
-| Module | Endpoints | Status |
-|--------|-----------|--------|
-| Auth (login, validate, me) | 7 | ✅ |
-| Users (list, profile) | 2 | ✅ |
-| Lines (CRUD) | 5 | ✅ |
-| Shifts (CRUD) | 2 | ✅ |
-| Processes (CRUD) | 2 | ✅ |
-| Parameters (CRUD) | 2 | ✅ |
-| System Settings | 4 | ✅ |
-| Notifications | 3 | ✅ |
-| Dashboard | 8 | ✅ |
-| Audit Logs | 3 | ✅ |
-| Analytics | 9 | ✅ |
-| Global Search | 2 | ✅ |
-| Export | 1 | ✅ |
-| Integration | 1 | ✅ |
-| Chemical Consumption (CRUD + submit/approve) | 5 | ✅ |
-| Process Monitoring (CRUD + submit/approve) | 4 | ✅ |
-| Daily Startup (CRUD) | 2 | ✅ |
-| Daily Inspection (create) | 1 | ✅ |
-| First Piece Inspection (create) | 1 | ✅ |
-| Pre-Delivery Inspection (create) | 1 | ✅ |
-| Attachments (upload/get/download) | 3 | ✅ |
-| Authorization checks | 1 | ✅ |
-
-**Bugs fixed during QA:**
-1. `AuthorizationDeniedException`/`AccessDeniedException` handlers causing 500/403 → proper 401/403 differentiation via `SecurityContextHolder` check
-2. `text/plain` MIME type and `.txt` extension missing from `AttachmentService` allowed types
-3. Test script enum mismatches (`NUMERIC`→`NUMBER`, `EACH_HOUR`→`HOURLY`)
 
 ## License
 

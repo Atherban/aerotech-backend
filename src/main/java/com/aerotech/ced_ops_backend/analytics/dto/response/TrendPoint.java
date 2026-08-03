@@ -17,10 +17,10 @@ import java.time.LocalDate;
 @Schema(description = "A single trend data point with a date and value")
 public class TrendPoint {
 
-    @Schema(description = "Date of the data point", example = "2025-06-15")
+    @Schema(description = "Date of the data point", example = "2025-06-15", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private LocalDate date;
 
-    @Schema(description = "Value at this date", example = "42")
+    @Schema(description = "Value at this date", example = "42", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long value;
 
 }

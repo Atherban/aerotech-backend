@@ -27,15 +27,15 @@ public class GlobalSearchQueryBuilder {
             "COALESCE(CONCAT(ua.first_name, ' ', ua.last_name), ua.employee_id) AS approved_by_name, " +
             "COALESCE(r.remarks, '') AS summary " +
             "FROM (" +
-            "SELECT id, report_number, 'PROCESS_MONITORING'::varchar AS report_type, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint AS process_id, created_at, updated_at FROM process_monitoring_reports " +
+            "SELECT id, report_number, 'PROCESS_MONITORING'::varchar AS report_type, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM process_monitoring_reports " +
             "UNION ALL " +
             "SELECT id, report_number, 'CHEMICAL_CONSUMPTION'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM chemical_consumption_reports " +
             "UNION ALL " +
             "SELECT id, report_number, 'DAILY_STARTUP'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM daily_startup_reports " +
             "UNION ALL " +
-            "SELECT id, report_number, 'FIRST_PIECE_INSPECTION'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, process_id, created_at, updated_at FROM first_piece_inspection_reports " +
+            "SELECT id, report_number, 'FIRST_PIECE_INSPECTION'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM first_piece_inspection_reports " +
             "UNION ALL " +
-            "SELECT id, report_number, 'DAILY_INSPECTION'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, process_id, created_at, updated_at FROM daily_inspection_reports " +
+            "SELECT id, report_number, 'DAILY_INSPECTION'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM daily_inspection_reports " +
             "UNION ALL " +
             "SELECT id, report_number, 'PDI'::varchar, report_date, status::varchar, shift_id, line_id, created_by, approved_by, remarks::varchar, NULL::bigint, created_at, updated_at FROM pre_delivery_inspection_reports " +
             ") r " +
@@ -46,12 +46,12 @@ public class GlobalSearchQueryBuilder {
 
     private static final String COUNT_SELECT = "SELECT COUNT(*) " +
             "FROM (" +
-            "SELECT id, shift_id, line_id, created_by, approved_by FROM process_monitoring_reports " +
-            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM chemical_consumption_reports " +
-            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM daily_startup_reports " +
-            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM first_piece_inspection_reports " +
-            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM daily_inspection_reports " +
-            "UNION ALL SELECT id, shift_id, line_id, created_by, approved_by FROM pre_delivery_inspection_reports " +
+            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM process_monitoring_reports " +
+            "UNION ALL SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM chemical_consumption_reports " +
+            "UNION ALL SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM daily_startup_reports " +
+            "UNION ALL SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM first_piece_inspection_reports " +
+            "UNION ALL SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM daily_inspection_reports " +
+            "UNION ALL SELECT id, report_number, report_type, report_date, status, shift_id, line_id, created_by, approved_by, remarks FROM pre_delivery_inspection_reports " +
             ") r " +
             "LEFT JOIN shifts s ON s.id = r.shift_id " +
             "LEFT JOIN line_master l ON l.id = r.line_id " +
@@ -89,7 +89,6 @@ public class GlobalSearchQueryBuilder {
         putIfPresent(params, "employeeId", request.getEmployeeId());
         putIfPresent(params, "shiftId", request.getShiftId());
         putIfPresent(params, "lineId", request.getLineId());
-        putIfPresent(params, "processId", request.getProcessId());
         putIfPresent(params, "dateFrom", request.getDateFrom());
         putIfPresent(params, "dateTo", request.getDateTo());
         putIfPresent(params, "remarks", request.getRemarks());
@@ -127,9 +126,6 @@ public class GlobalSearchQueryBuilder {
         }
         if (request.getLineId() != null) {
             conditions.add("r.line_id = :lineId");
-        }
-        if (request.getProcessId() != null) {
-            conditions.add("r.process_id = :processId");
         }
         if (request.getDateFrom() != null) {
             conditions.add("r.report_date >= :dateFrom");

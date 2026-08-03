@@ -17,49 +17,49 @@ import java.time.LocalDateTime;
 @Schema(description = "Response containing a single audit log entry")
 public class AuditLogResponse {
 
-    @Schema(description = "Audit log ID", example = "1")
+    @Schema(description = "Audit log ID", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long id;
 
-    @Schema(description = "Timestamp of the audit event", example = "2025-06-15T10:30:00")
+    @Schema(description = "Timestamp of the audit event", example = "2025-06-15T10:30:00", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private LocalDateTime timestamp;
 
-    @Schema(description = "User ID who performed the action", example = "1")
+    @Schema(description = "User ID who performed the action", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long userId;
 
-    @Schema(description = "Employee ID", example = "EMP-001")
+    @Schema(description = "Employee ID", example = "EMP-001", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String employeeId;
 
-    @Schema(description = "Username", example = "jdoe")
+    @Schema(description = "Username", example = "jdoe", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String username;
 
-    @Schema(description = "User role", example = "OPERATOR")
+    @Schema(description = "User role", example = "OPERATOR", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String userRole;
 
-    @Schema(description = "Module name", example = "quality")
+    @Schema(description = "Module name", example = "PROCESS_MONITORING", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String module;
 
-    @Schema(description = "Entity type", example = "Report")
+    @Schema(description = "Entity type", example = "Report", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String entityType;
 
-    @Schema(description = "Entity ID", example = "REP-001234")
+    @Schema(description = "Entity ID", example = "REP-001234", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String entityId;
 
-    @Schema(description = "Action performed", example = "CREATE")
+    @Schema(description = "Action performed", example = "CREATE", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String action;
 
-    @Schema(description = "Previous value before the change (JSON)")
+    @Schema(description = "Previous value before the change (JSON)", example = "null", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String previousValue;
 
-    @Schema(description = "New value after the change (JSON)")
+    @Schema(description = "New value after the change (JSON)", example = "{}", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String newValue;
 
-    @Schema(description = "IP address of the requester", example = "192.168.1.1")
+    @Schema(description = "IP address of the requester", example = "192.168.1.1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String ipAddress;
 
-    @Schema(description = "User agent string", example = "Mozilla/5.0")
+    @Schema(description = "User agent string", example = "Mozilla/5.0", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String userAgent;
 
-    @Schema(description = "Additional metadata (JSON)")
+    @Schema(description = "Additional metadata (JSON)", example = "null", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String metadata;
 
 }

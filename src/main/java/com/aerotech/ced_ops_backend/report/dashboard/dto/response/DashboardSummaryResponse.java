@@ -15,19 +15,19 @@ import lombok.Setter;
 @Schema(description = "Dashboard summary with report counts by status")
 public class DashboardSummaryResponse {
 
-    @Schema(description = "Total number of reports", example = "150")
+    @Schema(description = "Total number of reports", example = "150", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long totalReports;
 
-    @Schema(description = "Number of draft reports", example = "30")
+    @Schema(description = "Number of draft reports", example = "30", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long draftReports;
 
-    @Schema(description = "Number of submitted reports", example = "20")
+    @Schema(description = "Number of submitted reports", example = "20", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long submittedReports;
 
-    @Schema(description = "Number of approved reports", example = "90")
+    @Schema(description = "Number of approved reports", example = "90", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long approvedReports;
 
-    @Schema(description = "Number of rejected reports", example = "10")
+    @Schema(description = "Number of rejected reports", example = "10", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long rejectedReports;
 
 }

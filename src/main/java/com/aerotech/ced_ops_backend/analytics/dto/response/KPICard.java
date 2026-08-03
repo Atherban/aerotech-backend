@@ -15,19 +15,19 @@ import lombok.Setter;
 @Schema(description = "A single KPI card displaying a metric")
 public class KPICard {
 
-    @Schema(description = "KPI label", example = "Total Reports")
+    @Schema(description = "KPI label", example = "Total Reports", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String label;
 
-    @Schema(description = "KPI value", example = "500")
+    @Schema(description = "KPI value", example = "500", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String value;
 
-    @Schema(description = "Unit of measurement", example = "reports")
+    @Schema(description = "Unit of measurement", example = "reports", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String unit;
 
-    @Schema(description = "Change percentage", example = "+12.5%")
+    @Schema(description = "Change percentage", example = "+12.5%", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String change;
 
-    @Schema(description = "Trend direction", example = "up")
+    @Schema(description = "Trend direction", example = "up", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String trend;
 
 }

@@ -15,19 +15,19 @@ import lombok.Setter;
 @Schema(description = "Monthly report statistics")
 public class MonthlyReportStatisticsResponse {
 
-    @Schema(description = "Year", example = "2025")
+    @Schema(description = "Year", example = "2025", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private int year;
 
-    @Schema(description = "Month (1-12)", example = "1")
+    @Schema(description = "Month (1-12)", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private int month;
 
-    @Schema(description = "Total number of reports in the month", example = "40")
+    @Schema(description = "Total number of reports in the month", example = "40", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long totalReports;
 
-    @Schema(description = "Number of approved reports in the month", example = "30")
+    @Schema(description = "Number of approved reports in the month", example = "30", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long approvedReports;
 
-    @Schema(description = "Number of rejected reports in the month", example = "5")
+    @Schema(description = "Number of rejected reports in the month", example = "5", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long rejectedReports;
 
 }

@@ -1,20 +1,27 @@
 package com.aerotech.ced_ops_backend.master.parameter.service;
 
+import com.aerotech.ced_ops_backend.common.enums.ReportType;
 import com.aerotech.ced_ops_backend.common.exception.BadRequestException;
 import com.aerotech.ced_ops_backend.common.exception.ResourceNotFoundException;
+import com.aerotech.ced_ops_backend.common.pagination.PageableResolver;
+import com.aerotech.ced_ops_backend.common.pagination.SpecificationBuilder;
+import com.aerotech.ced_ops_backend.common.response.PageResponse;
 import com.aerotech.ced_ops_backend.master.parameter.dto.CreateParameterRequest;
+import com.aerotech.ced_ops_backend.master.parameter.dto.ParameterFilterRequest;
 import com.aerotech.ced_ops_backend.master.parameter.dto.ParameterResponse;
 import com.aerotech.ced_ops_backend.master.parameter.dto.UpdateParameterRequest;
 import com.aerotech.ced_ops_backend.master.parameter.entity.ParameterMaster;
 import com.aerotech.ced_ops_backend.master.parameter.repository.ParameterMasterRepository;
-import com.aerotech.ced_ops_backend.master.process.entity.ProcessMaster;
-import com.aerotech.ced_ops_backend.master.process.repository.ProcessMasterRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -22,24 +29,31 @@ import java.util.List;
 @Slf4j
 public class ParameterMasterService {
 
+    private static final Map<String, String> SORT_COLUMNS = Map.of(
+            "id", "id",
+            "parameterName", "parameterName",
+            "displayOrder", "displayOrder",
+            "inputType", "inputType",
+            "active", "active",
+            "visible", "visible",
+            "createdAt", "createdAt"
+    );
+
+    private static final String DEFAULT_SORT = "displayOrder";
+
     private final ParameterMasterRepository parameterRepository;
-    private final ProcessMasterRepository processRepository;
 
     public ParameterResponse create(CreateParameterRequest request) {
 
-        ProcessMaster process = processRepository.findById(request.getProcessId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Process not found."));
-
-        if (parameterRepository.existsByProcessIdAndParameterNameIgnoreCase(
-                request.getProcessId(),
+        if (parameterRepository.existsByReportTypeAndParameterNameIgnoreCase(
+                request.getReportType(),
                 request.getParameterName().trim())) {
 
-            throw new BadRequestException("Parameter already exists.");
+            throw new BadRequestException("Parameter already exists for this report type.");
         }
 
         ParameterMaster parameter = ParameterMaster.builder()
-                .process(process)
+                .reportType(request.getReportType())
                 .parameterName(request.getParameterName().trim())
                 .minValue(request.getMinValue())
                 .maxValue(request.getMaxValue())
@@ -50,11 +64,13 @@ public class ParameterMasterService {
                 .testMethod(request.getTestMethod())
                 .frequency(request.getFrequency())
                 .mandatory(request.getMandatory())
+                .visible(request.getVisible())
+                .defaultValue(request.getDefaultValue())
                 .build();
 
         parameter = parameterRepository.save(parameter);
 
-        log.info("Parameter created: {}", parameter.getParameterName());
+        log.info("Parameter created: {} for report type {}", parameter.getParameterName(), parameter.getReportType());
 
         return toResponse(parameter);
     }
@@ -69,9 +85,28 @@ public class ParameterMasterService {
     }
 
     @Transactional(readOnly = true)
-    public List<ParameterResponse> getByProcess(Long processId) {
+    public PageResponse<ParameterResponse> search(ParameterFilterRequest filter) {
 
-        return parameterRepository.findByProcessIdOrderByDisplayOrderAsc(processId)
+        Specification<ParameterMaster> spec = SpecificationBuilder.<ParameterMaster>builder()
+                .keyword(filter.getKeyword(),
+                        "parameterName", "unit", "testMethod")
+                .equals("reportType", filter.getReportType())
+                .equals("inputType", filter.getInputType())
+                .equals("active", filter.getActive())
+                .equals("visible", filter.getVisible())
+                .build();
+
+        Pageable pageable = PageableResolver.resolve(filter, SORT_COLUMNS, DEFAULT_SORT);
+
+        Page<ParameterMaster> page = parameterRepository.findAll(spec, pageable);
+
+        return PageResponse.from(page.map(this::toResponse));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ParameterResponse> getByReportType(ReportType reportType) {
+
+        return parameterRepository.findByReportTypeOrderByDisplayOrderAsc(reportType)
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -80,18 +115,12 @@ public class ParameterMasterService {
     @Transactional(readOnly = true)
     public ParameterResponse getById(Long id) {
 
-        ParameterMaster parameter = parameterRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Parameter not found."));
-
-        return toResponse(parameter);
+        return toResponse(getParameter(id));
     }
 
     public ParameterResponse update(Long id, UpdateParameterRequest request) {
 
-        ParameterMaster parameter = parameterRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Parameter not found."));
+        ParameterMaster parameter = getParameter(id);
 
         parameter.setParameterName(request.getParameterName().trim());
         parameter.setMinValue(request.getMinValue());
@@ -106,6 +135,12 @@ public class ParameterMasterService {
             parameter.setMandatory(request.getMandatory());
         }
 
+        if (request.getVisible() != null) {
+            parameter.setVisible(request.getVisible());
+        }
+
+        parameter.setDefaultValue(request.getDefaultValue());
+
         parameter = parameterRepository.save(parameter);
 
         log.info("Parameter updated: {}", parameter.getParameterName());
@@ -115,24 +150,27 @@ public class ParameterMasterService {
 
     public void delete(Long id) {
 
-        ParameterMaster parameter = parameterRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Parameter not found."));
+        ParameterMaster parameter = getParameter(id);
 
         parameter.setActive(false);
 
         parameterRepository.save(parameter);
 
         log.info("Parameter deactivated: {}", parameter.getParameterName());
+    }
 
+    private ParameterMaster getParameter(Long id) {
+
+        return parameterRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Parameter not found."));
     }
 
     private ParameterResponse toResponse(ParameterMaster parameter) {
 
         return ParameterResponse.builder()
                 .id(parameter.getId())
-                .processId(parameter.getProcess().getId())
-                .processName(parameter.getProcess().getName())
+                .reportType(parameter.getReportType())
                 .parameterName(parameter.getParameterName())
                 .minValue(parameter.getMinValue())
                 .maxValue(parameter.getMaxValue())
@@ -143,6 +181,8 @@ public class ParameterMasterService {
                 .testMethod(parameter.getTestMethod())
                 .frequency(parameter.getFrequency())
                 .mandatory(parameter.getMandatory())
+                .visible(parameter.getVisible())
+                .defaultValue(parameter.getDefaultValue())
                 .build();
     }
 

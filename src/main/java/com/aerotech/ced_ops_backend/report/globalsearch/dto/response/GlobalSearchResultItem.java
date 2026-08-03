@@ -17,34 +17,34 @@ import java.time.LocalDate;
 @Schema(description = "A single search result item from global search")
 public class GlobalSearchResultItem {
 
-    @Schema(description = "Unique identifier of the report", example = "1")
+    @Schema(description = "Unique identifier of the report", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long id;
 
-    @Schema(description = "Auto-generated report number", example = "FPI-2025-0001")
+    @Schema(description = "Auto-generated report number", example = "FPI-2025-0001", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String reportNumber;
 
-    @Schema(description = "Type of report", example = "FIRST_PIECE_INSPECTION")
+    @Schema(description = "Type of report", example = "FIRST_PIECE_INSPECTION", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String reportType;
 
-    @Schema(description = "Date of the report", example = "2025-01-15")
+    @Schema(description = "Date of the report", example = "2025-01-15", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private LocalDate reportDate;
 
-    @Schema(description = "Shift name", example = "Morning")
+    @Schema(description = "Shift name", example = "Morning", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String shiftName;
 
-    @Schema(description = "Production line name", example = "Line A")
+    @Schema(description = "Production line name", example = "Line A", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String lineName;
 
-    @Schema(description = "Status of the report", example = "APPROVED")
+    @Schema(description = "Status of the report", example = "APPROVED", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String status;
 
-    @Schema(description = "Employee who created the report", example = "jdoe")
+    @Schema(description = "Employee who created the report", example = "jdoe", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String createdBy;
 
-    @Schema(description = "Employee who approved the report", example = "asmith")
+    @Schema(description = "Employee who approved the report", example = "asmith", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String approvedBy;
 
-    @Schema(description = "Summary of the report content", example = "First piece inspection for casting CAST-001")
+    @Schema(description = "Summary of the report content", example = "First piece inspection for casting CAST-001", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String summary;
 
 }

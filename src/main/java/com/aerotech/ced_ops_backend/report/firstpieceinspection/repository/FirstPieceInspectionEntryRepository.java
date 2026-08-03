@@ -11,10 +11,10 @@ import java.util.List;
 public interface FirstPieceInspectionEntryRepository
         extends JpaRepository<FirstPieceInspectionEntry, Long> {
 
-    @EntityGraph(attributePaths = {"parameter", "parameter.process"})
+    @EntityGraph(attributePaths = {"parameter"})
     List<FirstPieceInspectionEntry> findByReport(FirstPieceInspectionReport report);
 
-    @EntityGraph(attributePaths = {"report", "parameter", "parameter.process"})
+    @EntityGraph(attributePaths = {"report", "parameter"})
     List<FirstPieceInspectionEntry> findByReportIdIn(Collection<Long> reportIds);
 
     void deleteByReportId(Long reportId);

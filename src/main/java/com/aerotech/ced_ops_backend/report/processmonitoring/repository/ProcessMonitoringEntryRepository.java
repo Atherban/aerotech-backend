@@ -11,10 +11,10 @@ import java.util.List;
 public interface ProcessMonitoringEntryRepository
         extends JpaRepository<ProcessMonitoringEntry, Long> {
 
-    @EntityGraph(attributePaths = {"parameter", "parameter.process"})
+    @EntityGraph(attributePaths = {"parameter"})
     List<ProcessMonitoringEntry> findByReport(ProcessMonitoringReport report);
 
-    @EntityGraph(attributePaths = {"report", "parameter", "parameter.process"})
+    @EntityGraph(attributePaths = {"report", "parameter"})
     List<ProcessMonitoringEntry> findByReportIdIn(Collection<Long> reportIds);
 
     void deleteByReportId(Long reportId);

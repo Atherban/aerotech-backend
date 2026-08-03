@@ -56,11 +56,11 @@ public class AnalyticsService {
         String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
         String from = "FROM (" + base + ") r" + where;
 
-        long total = count(from);
-        List<ChartDataPoint> byType = aggregateByColumn(from, "r.report_type");
-        List<ChartDataPoint> byStatus = aggregateByColumn(from, "r.status");
-        List<ChartDataPoint> byShift = aggregateWithJoin(from, "r.shift_id", "shifts", "name");
-        List<ChartDataPoint> byLine = aggregateWithJoin(from, "r.line_id", "line_master", "name");
+        long total = count(from, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byType = aggregateByColumn(from, "r.report_type", dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byStatus = aggregateByColumn(from, "r.status", dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byShift = aggregateWithJoin(from, "r.shift_id", "shifts", "name", dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byLine = aggregateWithJoin(from, "r.line_id", "line_master", "name", dateFrom, dateTo, shiftId, lineId);
 
         return ReportOverviewResponse.builder()
                 .totalReports(total)
@@ -77,10 +77,10 @@ public class AnalyticsService {
         String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
         String from = "FROM (" + base + ") r" + where;
 
-        long total = count(from);
-        long approved = countWithCondition(from, "r.status = 'APPROVED'");
-        long rejected = countWithCondition(from, "r.status = 'REJECTED'");
-        long submitted = countWithCondition(from, "r.status = 'SUBMITTED'");
+        long total = count(from, dateFrom, dateTo, shiftId, lineId);
+        long approved = countWithCondition(from, "r.status = 'APPROVED'", dateFrom, dateTo, shiftId, lineId);
+        long rejected = countWithCondition(from, "r.status = 'REJECTED'", dateFrom, dateTo, shiftId, lineId);
+        long submitted = countWithCondition(from, "r.status = 'SUBMITTED'", dateFrom, dateTo, shiftId, lineId);
 
         double approvalRate = total > 0 ? (double) approved / total * 100 : 0;
         double rejectionRate = total > 0 ? (double) rejected / total * 100 : 0;
@@ -89,9 +89,9 @@ public class AnalyticsService {
         String entryWhere = buildEntryWhere(dateFrom, dateTo, shiftId, lineId);
         String entryFrom = "FROM (" + entryUnion + ") e" + entryWhere;
 
-        long passCount = countWithCondition(entryFrom, "e.result = 'PASS'");
-        long failCount = countWithCondition(entryFrom, "e.result = 'FAIL'");
-        long totalEntries = passCount + failCount + countWithCondition(entryFrom, "e.result = 'NOT_APPLICABLE'");
+        long passCount = countWithCondition(entryFrom, "e.result = 'PASS'", dateFrom, dateTo, shiftId, lineId);
+        long failCount = countWithCondition(entryFrom, "e.result = 'FAIL'", dateFrom, dateTo, shiftId, lineId);
+        long totalEntries = passCount + failCount + countWithCondition(entryFrom, "e.result = 'NOT_APPLICABLE'", dateFrom, dateTo, shiftId, lineId);
         double passRate = totalEntries > 0 ? (double) passCount / totalEntries * 100 : 0;
         double failRate = totalEntries > 0 ? (double) failCount / totalEntries * 100 : 0;
 
@@ -102,7 +102,7 @@ public class AnalyticsService {
                 (dateTo != null ? "r.report_date <= :dateTo" : "") +
                 " GROUP BY r.report_date ORDER BY r.report_date";
 
-        List<TrendPoint> dailyTrend = executeTrendQuery(trendSql, dateFrom, dateTo);
+        List<TrendPoint> dailyTrend = executeTrendQuery(trendSql, dateFrom, dateTo, shiftId, lineId);
 
         List<ChartDataPoint> passFailByType = getPassFailByType(dateFrom, dateTo, shiftId, lineId);
 
@@ -132,23 +132,23 @@ public class AnalyticsService {
         if (lineId != null) where.append(" AND line_id = :lineId");
         String from = "FROM (" + base + where + ") r";
 
-        long total = count(from);
+        long total = count(from, dateFrom, dateTo, null, lineId);
         long dailyCount = countWithDateRange(
                 "SELECT id, report_date FROM chemical_consumption_reports", null, null);
 
         List<TrendPoint> dailyTrend = executeTrendQuery(
                 "SELECT report_date, COUNT(*) FROM chemical_consumption_reports" + where +
-                " GROUP BY report_date ORDER BY report_date", dateFrom, dateTo);
+                " GROUP BY report_date ORDER BY report_date", dateFrom, dateTo, null, lineId);
 
         List<TrendPoint> weeklyTrend = executeTrendQuery(
                 "SELECT DATE_TRUNC('week', report_date)::date, COUNT(*) " +
                 "FROM chemical_consumption_reports" + where +
-                " GROUP BY DATE_TRUNC('week', report_date) ORDER BY 1", dateFrom, dateTo);
+                " GROUP BY DATE_TRUNC('week', report_date) ORDER BY 1", dateFrom, dateTo, null, lineId);
 
         List<TrendPoint> monthlyTrend = executeTrendQuery(
                 "SELECT DATE_TRUNC('month', report_date)::date, COUNT(*) " +
                 "FROM chemical_consumption_reports" + where +
-                " GROUP BY DATE_TRUNC('month', report_date) ORDER BY 1", dateFrom, dateTo);
+                " GROUP BY DATE_TRUNC('month', report_date) ORDER BY 1", dateFrom, dateTo, null, lineId);
 
         String lineSql = "SELECT l.name, COUNT(*) FROM chemical_consumption_reports r " +
                 "JOIN line_master l ON l.id = r.line_id" + where +
@@ -252,25 +252,25 @@ public class AnalyticsService {
         String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
         String from = "FROM (" + base + ") r" + where;
 
-        long total = count(from);
+        long total = count(from, dateFrom, dateTo, shiftId, lineId);
 
         String perDaySql = "SELECT r.report_date, COUNT(*) FROM (" + base + ") r" +
                 buildWhereClause(dateFrom, dateTo, shiftId, lineId) +
                 " GROUP BY r.report_date ORDER BY r.report_date";
-        List<TrendPoint> perDay = executeTrendQuery(perDaySql, dateFrom, dateTo);
+        List<TrendPoint> perDay = executeTrendQuery(perDaySql, dateFrom, dateTo, shiftId, lineId);
 
         String perShiftSql = "SELECT s.name, COUNT(*) FROM (" + base + ") r " +
                 "JOIN shifts s ON s.id = r.shift_id" +
                 buildWhereClause(dateFrom, dateTo, null, lineId) +
                 " GROUP BY s.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> perShift = executeChartQuery(perShiftSql, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> perShift = executeChartQuery(perShiftSql, dateFrom, dateTo, null, lineId);
 
         String perOperatorSql = "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
                 "COUNT(*) FROM (" + base + ") r " +
                 "JOIN users u ON u.id = r.created_by" +
                 buildWhereClause(dateFrom, dateTo, shiftId, lineId) +
                 " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> perOperator = executeChartQuery(perOperatorSql, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> perOperator = executeChartQuery(perOperatorSql, dateFrom, dateTo, shiftId, lineId);
 
         double avgApprovalHours = computeAvgApprovalHours(base, dateFrom, dateTo, shiftId, lineId);
 
@@ -303,10 +303,10 @@ public class AnalyticsService {
                 " GROUP BY DATE_TRUNC('year', r.report_date) ORDER BY 1";
 
         return TimeAnalyticsResponse.builder()
-                .dailyTrend(executeTrendQuery(dailySql, dateFrom, dateTo))
-                .weeklyTrend(executeTrendQuery(weeklySql, dateFrom, dateTo))
-                .monthlyTrend(executeTrendQuery(monthlySql, dateFrom, dateTo))
-                .yearlyTrend(executeTrendQuery(yearlySql, dateFrom, dateTo))
+                .dailyTrend(executeTrendQuery(dailySql, dateFrom, dateTo, shiftId, lineId))
+                .weeklyTrend(executeTrendQuery(weeklySql, dateFrom, dateTo, shiftId, lineId))
+                .monthlyTrend(executeTrendQuery(monthlySql, dateFrom, dateTo, shiftId, lineId))
+                .yearlyTrend(executeTrendQuery(yearlySql, dateFrom, dateTo, shiftId, lineId))
                 .build();
     }
 
@@ -414,8 +414,25 @@ public class AnalyticsService {
         if (lineId != null) query.setParameter("lineId", lineId);
     }
 
+    private void bindParamsIfPresent(Query query, String sql, LocalDate dateFrom, LocalDate dateTo,
+                                     Long shiftId, Long lineId) {
+        if (dateFrom != null && sql.contains(":dateFrom")) query.setParameter("dateFrom", dateFrom);
+        if (dateTo != null && sql.contains(":dateTo")) query.setParameter("dateTo", dateTo);
+        if (shiftId != null && sql.contains(":shiftId")) query.setParameter("shiftId", shiftId);
+        if (lineId != null && sql.contains(":lineId")) query.setParameter("lineId", lineId);
+    }
+
     private long count(String from) {
         Query query = entityManager.createNativeQuery("SELECT COUNT(*) " + from);
+        Number result = (Number) query.getSingleResult();
+        return result != null ? result.longValue() : 0;
+    }
+
+    private long count(String from, LocalDate dateFrom, LocalDate dateTo,
+                       Long shiftId, Long lineId) {
+        String sql = "SELECT COUNT(*) " + from;
+        Query query = entityManager.createNativeQuery(sql);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         Number result = (Number) query.getSingleResult();
         return result != null ? result.longValue() : 0;
     }
@@ -423,6 +440,15 @@ public class AnalyticsService {
     private long countWithCondition(String from, String condition) {
         String sql = "SELECT COUNT(*) " + from + " AND " + condition;
         Query query = entityManager.createNativeQuery(sql);
+        Number result = (Number) query.getSingleResult();
+        return result != null ? result.longValue() : 0;
+    }
+
+    private long countWithCondition(String from, String condition, LocalDate dateFrom,
+                                    LocalDate dateTo, Long shiftId, Long lineId) {
+        String sql = "SELECT COUNT(*) " + from + " AND " + condition;
+        Query query = entityManager.createNativeQuery(sql);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         Number result = (Number) query.getSingleResult();
         return result != null ? result.longValue() : 0;
     }
@@ -453,9 +479,11 @@ public class AnalyticsService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> aggregateByColumn(String from, String column) {
+    private List<ChartDataPoint> aggregateByColumn(String from, String column, LocalDate dateFrom,
+                                                   LocalDate dateTo, Long shiftId, Long lineId) {
         String sql = "SELECT " + column + ", COUNT(*) " + from + " GROUP BY " + column + " ORDER BY COUNT(*) DESC";
         Query query = entityManager.createNativeQuery(sql);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<ChartDataPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
@@ -468,7 +496,9 @@ public class AnalyticsService {
 
     @SuppressWarnings("unchecked")
     private List<ChartDataPoint> aggregateWithJoin(String from, String fkColumn,
-                                                   String joinTable, String nameColumn) {
+                                                   String joinTable, String nameColumn,
+                                                   LocalDate dateFrom, LocalDate dateTo,
+                                                   Long shiftId, Long lineId) {
         // from contains "FROM (...) r WHERE 1=1 ...", extract the part before WHERE
         String whereClause = "";
         String baseFrom = from;
@@ -482,6 +512,7 @@ public class AnalyticsService {
                 whereClause +
                 " GROUP BY j." + nameColumn + " ORDER BY COUNT(*) DESC";
         Query query = entityManager.createNativeQuery(sql);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<ChartDataPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
@@ -523,10 +554,10 @@ public class AnalyticsService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<TrendPoint> executeTrendQuery(String sql, LocalDate dateFrom, LocalDate dateTo) {
+    private List<TrendPoint> executeTrendQuery(String sql, LocalDate dateFrom, LocalDate dateTo,
+                                               Long shiftId, Long lineId) {
         Query query = entityManager.createNativeQuery(sql);
-        if (dateFrom != null) query.setParameter("dateFrom", dateFrom);
-        if (dateTo != null) query.setParameter("dateTo", dateTo);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<TrendPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
@@ -566,7 +597,7 @@ public class AnalyticsService {
                 " GROUP BY e.report_type, e.result ORDER BY e.report_type, e.result";
 
         Query query = entityManager.createNativeQuery(sql);
-        setFilterParams(query, dateFrom, dateTo, shiftId, lineId);
+        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<ChartDataPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
@@ -596,16 +627,8 @@ public class AnalyticsService {
                                    Long shiftId, Long lineId) {
         StringBuilder sb = new StringBuilder(" WHERE 1=1");
         sb.append(" AND e.result IN ('PASS','FAIL','NOT_APPLICABLE')");
-        if (dateFrom != null || dateTo != null || shiftId != null || lineId != null) {
-            sb.append(" AND (");
-            boolean hasFilter = false;
-            if (dateFrom != null) {
-                sb.append("EXISTS (SELECT 1 FROM process_monitoring_reports pm WHERE pm.id = e.report_id AND pm.report_date >= :dateFrom)");
-                hasFilter = true;
-            }
-            // For simplicity in entry queries with filters, we leave date/shift/line
-            // filtering at the report level as an EXISTS subquery approach
-            sb.append(")");
+        if (dateFrom != null) {
+            sb.append(" AND EXISTS (SELECT 1 FROM process_monitoring_reports pm WHERE pm.id = e.report_id AND pm.report_date >= :dateFrom)");
         }
         return sb.toString();
     }

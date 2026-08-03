@@ -5,14 +5,16 @@ import com.aerotech.ced_ops_backend.report.chemical.dto.response.ChemicalConsump
 import com.aerotech.ced_ops_backend.report.chemical.dto.response.ChemicalConsumptionResponse;
 import com.aerotech.ced_ops_backend.report.chemical.entity.ChemicalConsumptionEntry;
 import com.aerotech.ced_ops_backend.report.chemical.entity.ChemicalConsumptionReport;
-import com.aerotech.ced_ops_backend.user.entity.User;
+import com.aerotech.ced_ops_backend.report.support.BaseReportMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class ChemicalConsumptionMapper {
+public class ChemicalConsumptionMapper
+        extends BaseReportMapper<ChemicalConsumptionReport, ChemicalConsumptionEntry, ChemicalConsumptionResponse, ChemicalConsumptionEntryResponse> {
 
+    @Override
     public ChemicalConsumptionResponse toResponse(
             ChemicalConsumptionReport report,
             List<ChemicalConsumptionEntry> entries
@@ -39,21 +41,8 @@ public class ChemicalConsumptionMapper {
 
     }
 
-    public List<ChemicalConsumptionResponse> toResponseList(
-            List<ChemicalConsumptionReport> reports
-    ) {
-
-        if (reports == null) {
-            return List.of();
-        }
-
-        return reports.stream()
-                .map(report -> toResponse(report, List.of()))
-                .toList();
-
-    }
-
-    public ChemicalConsumptionEntryResponse toEntryResponse(
+    @Override
+    protected ChemicalConsumptionEntryResponse toSingleEntryResponse(
             ChemicalConsumptionEntry entry
     ) {
 
@@ -66,9 +55,6 @@ public class ChemicalConsumptionMapper {
         return ChemicalConsumptionEntryResponse.builder()
                 .id(entry.getId())
                 .parameterId(parameter != null ? parameter.getId() : null)
-                .processName(parameter != null && parameter.getProcess() != null
-                        ? parameter.getProcess().getName()
-                        : null)
                 .parameterName(parameter != null ? parameter.getParameterName() : null)
                 .minValue(parameter != null ? parameter.getMinValue() : null)
                 .maxValue(parameter != null ? parameter.getMaxValue() : null)
@@ -77,30 +63,6 @@ public class ChemicalConsumptionMapper {
                 .inspectionResult(entry.getInspectionResult())
                 .remark(entry.getRemark())
                 .build();
-
-    }
-
-    public List<ChemicalConsumptionEntryResponse> toEntryResponseList(
-            List<ChemicalConsumptionEntry> entries
-    ) {
-
-        if (entries == null) {
-            return List.of();
-        }
-
-        return entries.stream()
-                .map(this::toEntryResponse)
-                .toList();
-
-    }
-
-    private String fullName(User user) {
-
-        if (user == null) {
-            return null;
-        }
-
-        return (user.getFirstName() + " " + user.getLastName()).trim();
 
     }
 

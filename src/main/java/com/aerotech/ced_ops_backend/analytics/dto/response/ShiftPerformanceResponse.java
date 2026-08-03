@@ -17,13 +17,13 @@ import java.util.List;
 @Schema(description = "Response containing shift performance analytics")
 public class ShiftPerformanceResponse {
 
-    @Schema(description = "Reports grouped by shift")
+    @Schema(description = "Reports grouped by shift", example = "[{\"label\":\"MORNING\",\"value\":250}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsByShift;
 
-    @Schema(description = "Pass rate grouped by shift")
+    @Schema(description = "Pass rate grouped by shift", example = "[{\"label\":\"MORNING\",\"value\":93}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> passRateByShift;
 
-    @Schema(description = "Failure rate grouped by shift")
+    @Schema(description = "Failure rate grouped by shift", example = "[{\"label\":\"MORNING\",\"value\":7}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> failureRateByShift;
 
 }

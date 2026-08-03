@@ -21,39 +21,48 @@ public class ApiError {
 
     @Schema(
             description = "Indicates whether the operation was successful",
-            example = "false"
+            example = "false",
+            requiredMode = Schema.RequiredMode.REQUIRED
     )
     private boolean success;
 
     @Schema(
             description = "HTTP status code of the error response",
-            example = "400"
+            example = "400",
+            requiredMode = Schema.RequiredMode.REQUIRED
     )
     private int status;
 
     @Schema(
             description = "Human-readable error message summarizing the problem",
-            example = "Validation Failed"
+            example = "Validation Failed",
+            requiredMode = Schema.RequiredMode.REQUIRED
     )
     private String message;
 
     @Schema(
             description = "Timestamp when the error occurred",
-            example = "2026-07-24T14:30:00"
+            example = "2026-07-24T14:30:00",
+            requiredMode = Schema.RequiredMode.REQUIRED
     )
     private LocalDateTime timestamp;
 
     @ArraySchema(
-            schema = @Schema(
+            arraySchema = @Schema(
                     description = "List of individual error messages (e.g., field validation errors)",
-                    example = "Field 'email' must not be blank"
+                    example = "[\"Field 'email' must not be blank\"]"
+            ),
+            schema = @Schema(
+                    implementation = String.class,
+                    description = "A single field-validation or business error message"
             )
     )
     private List<String> errors;
 
     @Schema(
             description = "Additional error-related data or payload",
-            nullable = true
+            nullable = true,
+            requiredMode = Schema.RequiredMode.NOT_REQUIRED
     )
     private Object data;
 }

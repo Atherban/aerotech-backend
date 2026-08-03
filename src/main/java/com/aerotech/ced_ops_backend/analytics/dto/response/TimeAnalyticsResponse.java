@@ -17,16 +17,16 @@ import java.util.List;
 @Schema(description = "Response containing time-based analytics data")
 public class TimeAnalyticsResponse {
 
-    @Schema(description = "Daily trend data points")
+    @Schema(description = "Daily trend data points", example = "[{\"date\":\"2025-06-15\",\"value\":42}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> dailyTrend;
 
-    @Schema(description = "Weekly trend data points")
+    @Schema(description = "Weekly trend data points", example = "[{\"date\":\"2025-06-15\",\"value\":280}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> weeklyTrend;
 
-    @Schema(description = "Monthly trend data points")
+    @Schema(description = "Monthly trend data points", example = "[{\"date\":\"2025-06-01\",\"value\":1200}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> monthlyTrend;
 
-    @Schema(description = "Yearly trend data points")
+    @Schema(description = "Yearly trend data points", example = "[{\"date\":\"2025-01-01\",\"value\":15000}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> yearlyTrend;
 
 }

@@ -17,13 +17,13 @@ import java.util.List;
 @Schema(description = "Response containing quality KPI data")
 public class QualityKPIResponse {
 
-    @Schema(description = "KPI summary cards")
+    @Schema(description = "KPI summary cards", example = "[{\"label\":\"Approval Rate\",\"value\":\"94\",\"unit\":\"%\",\"change\":\"+2%\",\"trend\":\"up\"}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<KPICard> kpiCards;
 
-    @Schema(description = "Daily inspection trend data")
+    @Schema(description = "Daily inspection trend data", example = "[{\"date\":\"2025-06-15\",\"value\":150}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<TrendPoint> dailyInspectionTrend;
 
-    @Schema(description = "Pass/fail counts by inspection type")
+    @Schema(description = "Pass/fail counts by inspection type", example = "[{\"label\":\"FINAL_INSPECTION\",\"value\":150}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> passFailByType;
 
 }

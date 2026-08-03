@@ -12,7 +12,7 @@ public class RoleService{
 
     private final RoleRepository roleRepository;
 
-    public Role getRolebyName(String roleName) {
+    public Role getRoleByName(String roleName) {
         return roleRepository.findByName(roleName)
                 .orElseThrow(()-> new ResourceNotFoundException("Role Not Found"));
     }

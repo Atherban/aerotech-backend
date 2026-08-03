@@ -5,14 +5,16 @@ import com.aerotech.ced_ops_backend.report.processmonitoring.dto.response.Proces
 import com.aerotech.ced_ops_backend.report.processmonitoring.dto.response.ProcessMonitoringResponse;
 import com.aerotech.ced_ops_backend.report.processmonitoring.entity.ProcessMonitoringEntry;
 import com.aerotech.ced_ops_backend.report.processmonitoring.entity.ProcessMonitoringReport;
-import com.aerotech.ced_ops_backend.user.entity.User;
+import com.aerotech.ced_ops_backend.report.support.BaseReportMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class ProcessMonitoringMapper {
+public class ProcessMonitoringMapper
+        extends BaseReportMapper<ProcessMonitoringReport, ProcessMonitoringEntry, ProcessMonitoringResponse, ProcessMonitoringEntryResponse> {
 
+    @Override
     public ProcessMonitoringResponse toResponse(
             ProcessMonitoringReport report,
             List<ProcessMonitoringEntry> entries
@@ -39,23 +41,8 @@ public class ProcessMonitoringMapper {
 
     }
 
-    public List<ProcessMonitoringResponse> toResponseList(
-            List<ProcessMonitoringReport> reports
-    ) {
-
-        if (reports == null) {
-            return List.of();
-        }
-
-        return reports.stream()
-                .map(report -> toResponse(report, List.of()))
-                .toList();
-
-    }
-
-    public ProcessMonitoringEntryResponse toEntryResponse(
-            ProcessMonitoringEntry entry
-    ) {
+    @Override
+    protected ProcessMonitoringEntryResponse toSingleEntryResponse(ProcessMonitoringEntry entry) {
 
         if (entry == null) {
             return null;
@@ -66,9 +53,6 @@ public class ProcessMonitoringMapper {
         return ProcessMonitoringEntryResponse.builder()
                 .id(entry.getId())
                 .parameterId(parameter != null ? parameter.getId() : null)
-                .processName(parameter != null && parameter.getProcess() != null
-                        ? parameter.getProcess().getName()
-                        : null)
                 .parameterName(parameter != null ? parameter.getParameterName() : null)
                 .minValue(parameter != null ? parameter.getMinValue() : null)
                 .maxValue(parameter != null ? parameter.getMaxValue() : null)
@@ -77,30 +61,6 @@ public class ProcessMonitoringMapper {
                 .inspectionResult(entry.getInspectionResult())
                 .remark(entry.getRemark())
                 .build();
-
-    }
-
-    public List<ProcessMonitoringEntryResponse> toEntryResponseList(
-            List<ProcessMonitoringEntry> entries
-    ) {
-
-        if (entries == null) {
-            return List.of();
-        }
-
-        return entries.stream()
-                .map(this::toEntryResponse)
-                .toList();
-
-    }
-
-    private String fullName(User user) {
-
-        if (user == null) {
-            return null;
-        }
-
-        return (user.getFirstName() + " " + user.getLastName()).trim();
 
     }
 

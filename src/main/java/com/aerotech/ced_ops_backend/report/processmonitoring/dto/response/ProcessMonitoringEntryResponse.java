@@ -14,34 +14,31 @@ import java.math.BigDecimal;
 @Schema(description = "An individual entry within a Process Monitoring response")
 public class ProcessMonitoringEntryResponse {
 
-    @Schema(description = "Unique identifier of the entry", example = "1")
+    @Schema(description = "Unique identifier of the entry", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long id;
 
-    @Schema(description = "ID of the monitoring parameter", example = "1")
+    @Schema(description = "ID of the monitoring parameter", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long parameterId;
 
-    @Schema(description = "Process name associated with the parameter", example = "Machining")
-    private String processName;
-
-    @Schema(description = "Name of the monitoring parameter", example = "Temperature")
+    @Schema(description = "Name of the monitoring parameter", example = "Temperature", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String parameterName;
 
-    @Schema(description = "Minimum allowable value", example = "100.00")
+    @Schema(description = "Minimum allowable value", example = "100.00", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private BigDecimal minValue;
 
-    @Schema(description = "Maximum allowable value", example = "200.00")
+    @Schema(description = "Maximum allowable value", example = "200.00", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private BigDecimal maxValue;
 
-    @Schema(description = "Observed measurement value", example = "150.00")
+    @Schema(description = "Observed measurement value", example = "150.00", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String observedValue;
 
-    @Schema(description = "Unit of measurement", example = "°C")
+    @Schema(description = "Unit of measurement", example = "°C", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String unit;
 
-    @Schema(description = "Result of the inspection")
+    @Schema(description = "Result of the inspection", example = "PASS", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private InspectionResult inspectionResult;
 
-    @Schema(description = "Remark for this entry", example = "Within specification")
+    @Schema(description = "Remark for this entry", example = "Within specification", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String remark;
 
 }

@@ -5,14 +5,16 @@ import com.aerotech.ced_ops_backend.report.dailyinspection.dto.response.DailyIns
 import com.aerotech.ced_ops_backend.report.dailyinspection.dto.response.DailyInspectionResponse;
 import com.aerotech.ced_ops_backend.report.dailyinspection.entity.DailyInspectionEntry;
 import com.aerotech.ced_ops_backend.report.dailyinspection.entity.DailyInspectionReport;
-import com.aerotech.ced_ops_backend.user.entity.User;
+import com.aerotech.ced_ops_backend.report.support.BaseReportMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
-public class DailyInspectionMapper {
+public class DailyInspectionMapper
+        extends BaseReportMapper<DailyInspectionReport, DailyInspectionEntry, DailyInspectionResponse, DailyInspectionEntryResponse> {
 
+    @Override
     public DailyInspectionResponse toResponse(
             DailyInspectionReport report,
             List<DailyInspectionEntry> entries
@@ -28,7 +30,6 @@ public class DailyInspectionMapper {
                 .reportDate(report.getReportDate())
                 .shift(report.getShift() != null ? report.getShift().getName() : null)
                 .line(report.getLine() != null ? report.getLine().getName() : null)
-                .process(report.getProcess() != null ? report.getProcess().getName() : null)
                 .inspectorName(report.getInspectorName())
                 .correctiveAction(report.getCorrectiveAction())
                 .createdBy(fullName(report.getCreatedBy()))
@@ -42,23 +43,8 @@ public class DailyInspectionMapper {
 
     }
 
-    public List<DailyInspectionResponse> toResponseList(
-            List<DailyInspectionReport> reports
-    ) {
-
-        if (reports == null) {
-            return List.of();
-        }
-
-        return reports.stream()
-                .map(report -> toResponse(report, List.of()))
-                .toList();
-
-    }
-
-    public DailyInspectionEntryResponse toEntryResponse(
-            DailyInspectionEntry entry
-    ) {
+    @Override
+    protected DailyInspectionEntryResponse toSingleEntryResponse(DailyInspectionEntry entry) {
 
         if (entry == null) {
             return null;
@@ -69,9 +55,6 @@ public class DailyInspectionMapper {
         return DailyInspectionEntryResponse.builder()
                 .id(entry.getId())
                 .parameterId(parameter != null ? parameter.getId() : null)
-                .processName(parameter != null && parameter.getProcess() != null
-                        ? parameter.getProcess().getName()
-                        : null)
                 .parameterName(parameter != null ? parameter.getParameterName() : null)
                 .minValue(parameter != null ? parameter.getMinValue() : null)
                 .maxValue(parameter != null ? parameter.getMaxValue() : null)
@@ -80,30 +63,6 @@ public class DailyInspectionMapper {
                 .inspectionResult(entry.getInspectionResult())
                 .remark(entry.getRemark())
                 .build();
-
-    }
-
-    public List<DailyInspectionEntryResponse> toEntryResponseList(
-            List<DailyInspectionEntry> entries
-    ) {
-
-        if (entries == null) {
-            return List.of();
-        }
-
-        return entries.stream()
-                .map(this::toEntryResponse)
-                .toList();
-
-    }
-
-    private String fullName(User user) {
-
-        if (user == null) {
-            return null;
-        }
-
-        return (user.getFirstName() + " " + user.getLastName()).trim();
 
     }
 

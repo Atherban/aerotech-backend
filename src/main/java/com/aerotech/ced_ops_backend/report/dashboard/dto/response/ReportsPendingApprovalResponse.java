@@ -15,7 +15,7 @@ import lombok.Setter;
 @Schema(description = "Number of reports pending approval")
 public class ReportsPendingApprovalResponse {
 
-    @Schema(description = "Number of reports pending approval", example = "12")
+    @Schema(description = "Number of reports pending approval", example = "12", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long count;
 
 }

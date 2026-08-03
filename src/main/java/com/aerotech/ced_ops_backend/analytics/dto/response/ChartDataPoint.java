@@ -15,10 +15,10 @@ import lombok.Setter;
 @Schema(description = "A single data point for chart rendering")
 public class ChartDataPoint {
 
-    @Schema(description = "Data point label", example = "FINAL_INSPECTION")
+    @Schema(description = "Data point label", example = "FINAL_INSPECTION", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String label;
 
-    @Schema(description = "Data point value", example = "150")
+    @Schema(description = "Data point value", example = "150", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private long value;
 
 }

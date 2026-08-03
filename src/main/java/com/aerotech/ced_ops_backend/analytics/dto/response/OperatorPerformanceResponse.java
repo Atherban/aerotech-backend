@@ -17,13 +17,13 @@ import java.util.List;
 @Schema(description = "Response containing operator performance analytics")
 public class OperatorPerformanceResponse {
 
-    @Schema(description = "Reports submitted per operator")
+    @Schema(description = "Reports submitted per operator", example = "[{\"label\":\"john.doe\",\"value\":120}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> reportsSubmitted;
 
-    @Schema(description = "Approval percentage per operator")
+    @Schema(description = "Approval percentage per operator", example = "[{\"label\":\"john.doe\",\"value\":95}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> approvalPercentage;
 
-    @Schema(description = "Rejection percentage per operator")
+    @Schema(description = "Rejection percentage per operator", example = "[{\"label\":\"john.doe\",\"value\":5}]", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private List<ChartDataPoint> rejectionPercentage;
 
 }

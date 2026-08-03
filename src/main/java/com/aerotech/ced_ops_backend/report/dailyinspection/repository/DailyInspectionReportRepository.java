@@ -11,11 +11,11 @@ import java.util.Optional;
 public interface DailyInspectionReportRepository
         extends JpaRepository<DailyInspectionReport, Long> {
 
-    @EntityGraph(attributePaths = {"shift", "line", "process", "createdBy", "approvedBy"})
+    @EntityGraph(attributePaths = {"shift", "line", "createdBy", "approvedBy"})
     @Query("SELECT r FROM DailyInspectionReport r ORDER BY r.id DESC")
     List<DailyInspectionReport> findAllWithDetails();
 
-    @EntityGraph(attributePaths = {"shift", "line", "process", "createdBy", "approvedBy"})
+    @EntityGraph(attributePaths = {"shift", "line", "createdBy", "approvedBy"})
     @Query("SELECT r FROM DailyInspectionReport r WHERE r.id = :id")
     Optional<DailyInspectionReport> findByIdWithDetails(Long id);
 
