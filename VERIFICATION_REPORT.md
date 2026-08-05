@@ -105,7 +105,7 @@ Business actions the Staff should perform (per Phase 2 Daily Operation):
 |---|---|---|
 | **Report edit / resubmit** | Reject workflow writes status=REJECTED + `remarks`; report can be resubmitted only after edit — but there is no edit path. | No `PUT/PATCH /api/reports/{module}/{id}`. (See Missing Business Capability.) |
 | **Audit trail** | Full read model (`audit_logs` table, `AuditService`, 3 endpoints, statistics, Specification filter). | **Read-only**: nothing in the codebase writes `audit_logs` (no `AuditLogRepository.save` caller anywhere). Auth/report/master actions do not record audit entries, so the audit log is effectively always empty. Documented as "(currently read-only) audit-log service". |
-| **Notifications** | Full notification store + API (`notifications` table, `NotificationService`, 6 endpoints, unread count). | **Not triggered by any workflow**: no report/approval/user event calls `NotificationService`/`NotificationChannel` from outside the notification module. Approval workflow notifications are listed in Blueprint §8 as future work. |
+| **Notifications** | Full notification store + API (`notifications` table, `NotificationService`, 6 endpoints, unread count). | **In-app only**: workflow-triggered notifications now exist — report create/submit (`REPORT_CREATED`/`REPORT_SUBMITTED` to creator), approve/reject (`REPORT_APPROVED`/`REPORT_REJECTED` to creator), user creation (`USER_CREATED` + `WELCOME`) and password change (`PASSWORD_CHANGED`) all write via `NotificationChannel`. No external channels (email/SMS/push) yet. |
 | **Shift validation** | Shift CRUD + overnight detection works. | `CreateShiftRequest.startTime/endTime` are not `@NotNull`; empty times silently allowed. Also no overlap validation (by design — only name is unique). |
 | **Submit metadata** | Submit transition enforced (DRAFT→SUBMITTED). | No `submittedBy`/`submittedAt` columns recorded (by design). |
 | **Report number sequence** | Generated as `{PREFIX}-{yyyyMMdd}-%05d`. | Uses `count()+1` (no DB sequence); race-prone and shifts after deletes (documented in `API_DOCUMENTATION.md`). |
@@ -131,8 +131,9 @@ post-V1 roadmap item).
 
 1. **Report edit / resubmit** — no update endpoint for any report type; the
    reject → edit → resubmit loop (Blueprint Phase 3) is incomplete.
-2. **Workflow-triggered notifications** — approval workflow does not create
-   notifications (Blueprint §8 future item).
+2. **External notification channels** — in-app workflow notifications are
+   implemented (see §5); email/SMS/push delivery is not (Blueprint §8 future
+   item).
 3. **Write-path audit logging** — audit log is read-only; no events are recorded
    (Blueprint §8 future item).
 

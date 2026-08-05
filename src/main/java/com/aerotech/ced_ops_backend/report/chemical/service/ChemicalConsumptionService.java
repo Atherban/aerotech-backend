@@ -8,6 +8,7 @@ import com.aerotech.ced_ops_backend.master.line.repository.LineRepository;
 import com.aerotech.ced_ops_backend.master.parameter.entity.ParameterMaster;
 import com.aerotech.ced_ops_backend.master.parameter.repository.ParameterMasterRepository;
 import com.aerotech.ced_ops_backend.master.shift.service.ShiftService;
+import com.aerotech.ced_ops_backend.notification.service.NotificationChannel;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.ApproveChemicalConsumptionRequest;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.CreateChemicalConsumptionRequest;
 import com.aerotech.ced_ops_backend.report.chemical.dto.request.SubmitChemicalConsumptionRequest;
@@ -46,11 +47,12 @@ public class ChemicalConsumptionService
             LineRepository lineRepository,
             ParameterMasterRepository parameterRepository,
             UserRepository userRepository,
+            NotificationChannel notificationChannel,
             ChemicalConsumptionReportRepository reportRepository,
             ChemicalConsumptionEntryRepository entryRepository,
             ChemicalConsumptionMapper mapper
     ) {
-        super(reportNumberGenerator, validationService, shiftService, lineRepository, parameterRepository, userRepository);
+        super(reportNumberGenerator, validationService, shiftService, lineRepository, parameterRepository, userRepository, notificationChannel);
         this.reportRepository = reportRepository;
         this.entryRepository = entryRepository;
         this.mapper = mapper;

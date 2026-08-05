@@ -1,6 +1,7 @@
 package com.aerotech.ced_ops_backend.report.support;
 
 import com.aerotech.ced_ops_backend.common.entity.BaseReport;
+import com.aerotech.ced_ops_backend.common.enums.NotificationType;
 import com.aerotech.ced_ops_backend.common.enums.ReportStatus;
 import com.aerotech.ced_ops_backend.common.enums.ReportType;
 import com.aerotech.ced_ops_backend.common.exception.BadRequestException;
@@ -15,6 +16,7 @@ import com.aerotech.ced_ops_backend.master.parameter.entity.ParameterMaster;
 import com.aerotech.ced_ops_backend.master.parameter.repository.ParameterMasterRepository;
 import com.aerotech.ced_ops_backend.master.shift.entity.Shift;
 import com.aerotech.ced_ops_backend.master.shift.service.ShiftService;
+import com.aerotech.ced_ops_backend.notification.service.NotificationChannel;
 import com.aerotech.ced_ops_backend.user.entity.User;
 import com.aerotech.ced_ops_backend.user.repository.UserRepository;
 
@@ -53,6 +55,7 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
     protected final LineRepository lineRepository;
     protected final ParameterMasterRepository parameterRepository;
     protected final UserRepository userRepository;
+    protected final NotificationChannel notificationChannel;
 
     protected AbstractReportService(
             ReportNumberGenerator reportNumberGenerator,
@@ -60,7 +63,8 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
             ShiftService shiftService,
             LineRepository lineRepository,
             ParameterMasterRepository parameterRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            NotificationChannel notificationChannel
     ) {
         this.reportNumberGenerator = reportNumberGenerator;
         this.validationService = validationService;
@@ -68,6 +72,7 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
         this.lineRepository = lineRepository;
         this.parameterRepository = parameterRepository;
         this.userRepository = userRepository;
+        this.notificationChannel = notificationChannel;
     }
 
     // ------------------------------------------------------------------
@@ -141,6 +146,8 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
 
         List<E> entries = entriesFactory.apply(report);
         entries = saveEntries(entries);
+
+        notifyReportCreated(report);
 
         return toResponse(report, entries);
     }
@@ -242,6 +249,8 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
 
         report = saveReport(report);
 
+        notifyReportSubmitted(report);
+
         return toResponse(report, entriesOf(report));
     }
 
@@ -268,6 +277,8 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
         mergeRemarks(report, remarks);
 
         report = saveReport(report);
+
+        notifyReportDecision(report, status);
 
         return toResponse(report, entriesOf(report));
     }
@@ -299,6 +310,56 @@ public abstract class AbstractReportService<R extends BaseReport, E, RO> {
         if (value != null) {
             report.setRemarks(value);
         }
+    }
+
+    private void notifyReportCreated(R report) {
+        Long recipientId = report.getCreatedBy() != null ? report.getCreatedBy().getId() : null;
+        if (recipientId == null) {
+            return;
+        }
+        notificationChannel.notify(
+                NotificationType.REPORT_CREATED,
+                recipientId,
+                "Report Created",
+                reportLabel() + " report " + report.getReportNumber() + " has been created.",
+                reportType().name(),
+                String.valueOf(report.getId()),
+                null
+        );
+    }
+
+    private void notifyReportSubmitted(R report) {
+        Long recipientId = report.getCreatedBy() != null ? report.getCreatedBy().getId() : null;
+        if (recipientId == null) {
+            return;
+        }
+        notificationChannel.notify(
+                NotificationType.REPORT_SUBMITTED,
+                recipientId,
+                "Report Submitted",
+                reportLabel() + " report " + report.getReportNumber() + " has been submitted for approval.",
+                reportType().name(),
+                String.valueOf(report.getId()),
+                null
+        );
+    }
+
+    private void notifyReportDecision(R report, ReportStatus status) {
+        Long recipientId = report.getCreatedBy() != null ? report.getCreatedBy().getId() : null;
+        if (recipientId == null) {
+            return;
+        }
+        boolean approved = status == ReportStatus.APPROVED;
+        notificationChannel.notify(
+                approved ? NotificationType.REPORT_APPROVED : NotificationType.REPORT_REJECTED,
+                recipientId,
+                approved ? "Report Approved" : "Report Rejected",
+                reportLabel() + " report " + report.getReportNumber()
+                        + (approved ? " has been approved." : " has been rejected."),
+                reportType().name(),
+                String.valueOf(report.getId()),
+                null
+        );
     }
 
     protected E buildEntry(

@@ -80,7 +80,7 @@ to the frozen report engine.
 | Feature | Description | Backend note |
 |---------|-------------|--------------|
 | Report edit / resubmit | Allow an operator to edit a rejected report and resubmit it (completes the reject → edit → resubmit loop). Also enables editing/resuming existing drafts. | Currently **missing** — no `PUT`/`PATCH` report endpoint. The single gap found in the business-workflow verification (`VERIFICATION_REPORT.md`). Awaiting client decision on V1 vs post-V1 scope. |
-| Workflow-triggered notifications | Auto-create notifications on lifecycle events (report submitted, approved, rejected). | Notifications module exists but nothing triggers it from the workflow. |
+| External notification channels | Deliver notifications out-of-band (email/SMS/push). | In-app notifications are already workflow-triggered via `NotificationChannel` (report submit/approve/reject, user created/welcome, password changed). Only external delivery is outstanding. |
 | Write-path audit logging | Record audit entries for every lifecycle event (login, create, submit, approve, reject, edit). | Audit service is currently read-only. |
 | Attachments per report entry | Attach files to individual report entries (currently files attach to a report as a whole). | |
 | Parameter-level analytics | Analytics over individual parameter readings, not just report aggregates. | |

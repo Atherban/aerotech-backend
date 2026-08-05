@@ -3,9 +3,11 @@ package com.aerotech.ced_ops_backend.user.service;
 import com.aerotech.ced_ops_backend.auth.repository.RefreshTokenRepository;
 import com.aerotech.ced_ops_backend.common.exception.BadRequestException;
 import com.aerotech.ced_ops_backend.common.exception.ResourceNotFoundException;
+import com.aerotech.ced_ops_backend.common.enums.NotificationType;
 import com.aerotech.ced_ops_backend.common.pagination.PageableResolver;
 import com.aerotech.ced_ops_backend.common.pagination.SpecificationBuilder;
 import com.aerotech.ced_ops_backend.common.response.PageResponse;
+import com.aerotech.ced_ops_backend.notification.service.NotificationChannel;
 import com.aerotech.ced_ops_backend.role.entity.Role;
 import com.aerotech.ced_ops_backend.role.service.RoleService;
 import com.aerotech.ced_ops_backend.user.dto.*;
@@ -47,6 +49,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final UserMapper mapper;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final NotificationChannel notificationChannel;
 
     public UserResponse createUser(CreateUserRequest request) {
 
@@ -73,6 +76,26 @@ public class UserService {
         userRepository.save(user);
 
         log.info("User {} created", user.getEmployeeId());
+
+        notificationChannel.notify(
+                NotificationType.USER_CREATED,
+                user.getId(),
+                "Welcome to CED Ops",
+                "Your account " + user.getEmployeeId() + " has been created with the role " + role.getName() + ".",
+                "USER",
+                String.valueOf(user.getId()),
+                null
+        );
+
+        notificationChannel.notify(
+                NotificationType.WELCOME,
+                user.getId(),
+                "Account Activated",
+                "Your CED Ops account is now active. Please keep your credentials safe.",
+                "USER",
+                String.valueOf(user.getId()),
+                null
+        );
 
         return mapper.toResponse(user);
     }
@@ -195,6 +218,16 @@ public class UserService {
         userRepository.save(user);
 
         log.info("Password changed for {}", employeeId);
+
+        notificationChannel.notify(
+                NotificationType.PASSWORD_CHANGED,
+                user.getId(),
+                "Password Changed",
+                "Your password was changed successfully.",
+                "USER",
+                String.valueOf(user.getId()),
+                null
+        );
     }
 
 }

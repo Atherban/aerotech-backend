@@ -214,7 +214,7 @@ All six report modules share the same endpoint shape, state machine and validati
 - **Approve:** only `SUBMITTED -> APPROVED` (else 400). Stamps `approvedBy`/`approvedAt`. Requires `SUPER_ADMIN` or `ADMIN`.
 - **Reject:** only `SUBMITTED -> REJECTED` (else 400). The rejection reason is stored in the shared `remarks` column (no dedicated `rejectionReason` field). Requires `SUPER_ADMIN` or `ADMIN`.
 - **Delete:** only while `DRAFT` (else 400). **Physical** delete — entries first, then the report row. Requires `SUPER_ADMIN`.
-- **No side-effects:** no report flow writes notifications or audit rows; the only DB audit trail is JPA `created_at`/`updated_at`.
+- **Notifications:** report flows notify the report creator in-app. `create` sends `REPORT_CREATED`, `submit` sends `REPORT_SUBMITTED`, and the approval step sends `REPORT_APPROVED`/`REPORT_REJECTED` (recipient = report `createdBy`). No report flow writes audit rows; the only DB audit trail is JPA `created_at`/`updated_at`.
 
 **Endpoints per module** (identical contract; `{module}` is one of the six path segments in section 1):
 
@@ -9654,6 +9654,8 @@ Read: attachments. Write: attachments (UPDATE is_active=false). File remains on 
 ## 24. Notifications
 
 Per-user notifications. Any authenticated user; all data is scoped to the current user (ownership violations surface as 404 to hide existence). Read/delete are physical; mark-as-read updates the row.
+
+**Workflow-triggered**: notifications are emitted by backend business flows and persisted in-app. Report flows (`create` -> `REPORT_CREATED`, `submit` -> `REPORT_SUBMITTED`, approve/reject -> `REPORT_APPROVED`/`REPORT_REJECTED` to the creator) and user/auth flows (user creation -> `USER_CREATED` + `WELCOME`, password change -> `PASSWORD_CHANGED`) write notifications via `NotificationChannel`. There are no external channels (email/SMS/push) yet.
 
 **Enum reference**
 

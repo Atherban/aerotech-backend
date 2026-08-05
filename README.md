@@ -26,7 +26,9 @@ analytics, and global search.
 - **Unified pagination & filtering** — consistent list experience across every
   module.
 - **Attachments, notifications, settings, integration center, audit logs** —
-  supporting platform modules.
+  supporting platform modules. Notifications are workflow-triggered in-app
+  (report created/submitted/approved/rejected, user created/welcome, password
+  changed).
 
 ## Documentation Index
 

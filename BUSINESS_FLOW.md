@@ -886,7 +886,7 @@ roadmap is explicit; none of them are required for Version 1 operation.
 
 | Future feature | Description |
 |----------------|-------------|
-| **Notifications** | Automated notifications triggered by workflow events (e.g., "your report was rejected", "new report awaiting approval"). |
+| **Notifications** | In-app notifications are already triggered by workflow events (report created/submitted/approved/rejected to the creator; user created/welcome; password changed). Future: external delivery channels (email/SMS/push). |
 | **Audit Logs** | Automatic recording of every write action for a complete, tamper-evident audit trail. |
 | **AI Insights** | Anomaly detection and reading trend analysis over report data. |
 | **ERP Integration** | Push/pull integration with ERP systems for production data. |

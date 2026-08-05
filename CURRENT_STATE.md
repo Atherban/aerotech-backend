@@ -203,8 +203,9 @@ the feature-complete backend (no code changes). Full detail in
   or deleted. Documented as a post-V1 roadmap item (Blueprint §8); consciously
   deferred.
 - **Partially implemented:** audit trail is read-only (nothing writes
-  `audit_logs`); notifications are not triggered by any workflow (no external
-  callers); `CreateShiftRequest` times lack `@NotNull`; no
+  `audit_logs`); notifications are written by report and user/auth workflows
+  (via `NotificationChannel`) but there are no external channels (email/SMS/push);
+  `CreateShiftRequest` times lack `@NotNull`; no
   `submittedBy`/`submittedAt`; report numbers use `count()+1` (race-prone);
   MapStruct declared but unused.
 - **Production readiness gaps (non-blocking for frontend):** hardcoded DB creds
