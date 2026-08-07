@@ -28,8 +28,14 @@ public class UnifiedSearchRequest extends PageRequest {
     @Schema(description = "Partial or full report number / parameter name / employee ID", example = "PMR", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String reportNumber;
 
-    @Schema(description = "Report type filter", example = "PROCESS_MONITORING", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    @Schema(description = "Report type filter (matches the module name of the generic engine report)", example = "Process Monitoring", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String reportType;
+
+    @Schema(description = "Module ID filter (reports only)", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Long moduleId;
+
+    @Schema(description = "Module type ID filter (reports only)", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Long moduleTypeId;
 
     @Schema(description = "Report status filter", example = "APPROVED", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private String status;
@@ -65,6 +71,8 @@ public class UnifiedSearchRequest extends PageRequest {
                 || PageRequest.isPresent(role)
                 || shiftId != null
                 || lineId != null
+                || moduleId != null
+                || moduleTypeId != null
                 || dateFrom != null
                 || dateTo != null;
     }

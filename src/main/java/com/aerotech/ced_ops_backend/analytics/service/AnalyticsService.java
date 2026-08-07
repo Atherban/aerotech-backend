@@ -23,6 +23,19 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Analytics over the Generic Report Engine (Phase 4). Every metric is derived
+ * from the module-driven tables — {@code report} (CompletedReport) with its
+ * immutable snapshots, plus {@code recorded_value}/{@code recorded_process} for
+ * entry-level figures. No report-specific legacy tables are consulted and no
+ * report-type-specific Java code exists.
+ *
+ * <p>Entry-level PASS/FAIL is configuration-driven: a {@code recorded_value} is
+ * PASS when its numeric {@code observed_value} lies within the frozen
+ * {@code minimum_value}/{@code maximum_value} snapshot of the process parameter.
+ * "Consumption" sums the numeric bounded observed values. All other aggregation
+ * patterns mirror the legacy analytics service.
+ */
 @Service
 @Transactional(readOnly = true)
 public class AnalyticsService {
@@ -30,37 +43,50 @@ public class AnalyticsService {
     @PersistenceContext
     private EntityManager entityManager;
 
-    private static final String REPORT_UNION =
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM process_monitoring_reports UNION ALL " +
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM chemical_consumption_reports UNION ALL " +
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM daily_startup_reports UNION ALL " +
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM first_piece_inspection_reports UNION ALL " +
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM daily_inspection_reports UNION ALL " +
-            "SELECT id, report_number, report_type, report_date, status, shift_id, line_id, " +
-            "created_by, approved_by, created_at, approved_at " +
-            "FROM pre_delivery_inspection_reports";
+    private static final String REPORT_ALIAS = "r";
+
+    /** Numeric values only — prevents casts of free-text observations. */
+    private static final String NUMERIC =
+            "v.observed_value ~ '^-?[0-9]+(\\.[0-9]+)?$'";
+
+    /** A bounded, measurable value (has at least one spec boundary). */
+    private static final String BOUNDED =
+            "(v.minimum_value IS NOT NULL OR v.maximum_value IS NOT NULL)";
+
+    private static final String WITHIN_SPEC =
+            "(" + NUMERIC + " AND " + BOUNDED +
+            " AND (v.minimum_value IS NULL OR CAST(v.observed_value AS NUMERIC) >= v.minimum_value)" +
+            " AND (v.maximum_value IS NULL OR CAST(v.observed_value AS NUMERIC) <= v.maximum_value))";
+
+    private static final String OUT_OF_SPEC =
+            "(" + NUMERIC + " AND " + BOUNDED + " AND NOT " + WITHIN_SPEC + ")";
+
+    private static final String VALUE_FROM =
+            "FROM recorded_value v " +
+            "JOIN recorded_process rp ON rp.id = v.recorded_process_id " +
+            "JOIN report_session s ON s.id = rp.session_id " +
+            "JOIN report r ON r.session_id = s.id ";
 
     public ReportOverviewResponse getReportOverview(LocalDate dateFrom, LocalDate dateTo,
                                                     Long shiftId, Long lineId) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
-        String from = "FROM (" + base + ") r" + where;
+        String where = buildWhere(dateFrom, dateTo, shiftId, lineId);
+        String params = where;
 
-        long total = count(from, dateFrom, dateTo, shiftId, lineId);
-        List<ChartDataPoint> byType = aggregateByColumn(from, "r.report_type", dateFrom, dateTo, shiftId, lineId);
-        List<ChartDataPoint> byStatus = aggregateByColumn(from, "r.status", dateFrom, dateTo, shiftId, lineId);
-        List<ChartDataPoint> byShift = aggregateWithJoin(from, "r.shift_id", "shifts", "name", dateFrom, dateTo, shiftId, lineId);
-        List<ChartDataPoint> byLine = aggregateWithJoin(from, "r.line_id", "line_master", "name", dateFrom, dateTo, shiftId, lineId);
+        long total = countReports(where, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byType = executeChartQuery(
+                "SELECT r.module_name, COUNT(*) FROM report r" + where +
+                " GROUP BY r.module_name ORDER BY COUNT(*) DESC", params, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byStatus = executeChartQuery(
+                "SELECT r.status, COUNT(*) FROM report r" + where +
+                " GROUP BY r.status ORDER BY COUNT(*) DESC", params, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byShift = executeChartQuery(
+                "SELECT r.shift_name, COUNT(*) FROM report r" + where +
+                " AND r.shift_id IS NOT NULL GROUP BY r.shift_name ORDER BY COUNT(*) DESC",
+                params, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> byLine = executeChartQuery(
+                "SELECT r.line_name, COUNT(*) FROM report r" + where +
+                " AND r.line_id IS NOT NULL GROUP BY r.line_name ORDER BY COUNT(*) DESC",
+                params, dateFrom, dateTo, shiftId, lineId);
 
         return ReportOverviewResponse.builder()
                 .totalReports(total)
@@ -73,38 +99,26 @@ public class AnalyticsService {
 
     public QualityKPIResponse getQualityKPIs(LocalDate dateFrom, LocalDate dateTo,
                                              Long shiftId, Long lineId) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
-        String from = "FROM (" + base + ") r" + where;
+        String where = buildWhere(dateFrom, dateTo, shiftId, lineId);
 
-        long total = count(from, dateFrom, dateTo, shiftId, lineId);
-        long approved = countWithCondition(from, "r.status = 'APPROVED'", dateFrom, dateTo, shiftId, lineId);
-        long rejected = countWithCondition(from, "r.status = 'REJECTED'", dateFrom, dateTo, shiftId, lineId);
-        long submitted = countWithCondition(from, "r.status = 'SUBMITTED'", dateFrom, dateTo, shiftId, lineId);
+        long total = countReports(where, dateFrom, dateTo, shiftId, lineId);
+        long approved = countWithStatus("APPROVED", where, dateFrom, dateTo, shiftId, lineId);
+        long rejected = countWithStatus("REJECTED", where, dateFrom, dateTo, shiftId, lineId);
+        long submitted = countWithStatus("SUBMITTED", where, dateFrom, dateTo, shiftId, lineId);
 
         double approvalRate = total > 0 ? (double) approved / total * 100 : 0;
         double rejectionRate = total > 0 ? (double) rejected / total * 100 : 0;
 
-        String entryUnion = buildEntryUnion();
-        String entryWhere = buildEntryWhere(dateFrom, dateTo, shiftId, lineId);
-        String entryFrom = "FROM (" + entryUnion + ") e" + entryWhere;
+        ValueStats stats = valueStats(where, dateFrom, dateTo, shiftId, lineId);
+        double passRate = stats.total > 0 ? (double) stats.pass / stats.total * 100 : 0;
+        double failRate = stats.total > 0 ? (double) stats.fail / stats.total * 100 : 0;
 
-        long passCount = countWithCondition(entryFrom, "e.result = 'PASS'", dateFrom, dateTo, shiftId, lineId);
-        long failCount = countWithCondition(entryFrom, "e.result = 'FAIL'", dateFrom, dateTo, shiftId, lineId);
-        long totalEntries = passCount + failCount + countWithCondition(entryFrom, "e.result = 'NOT_APPLICABLE'", dateFrom, dateTo, shiftId, lineId);
-        double passRate = totalEntries > 0 ? (double) passCount / totalEntries * 100 : 0;
-        double failRate = totalEntries > 0 ? (double) failCount / totalEntries * 100 : 0;
+        List<TrendPoint> dailyTrend = executeTrendQuery(
+                "SELECT r.started_at::date, COUNT(*) FROM report r" + where +
+                " GROUP BY r.started_at::date ORDER BY r.started_at::date",
+                where, dateFrom, dateTo, shiftId, lineId);
 
-        String trendSql = "SELECT r.report_date, COUNT(*) FROM (" + base + ") r" +
-                (dateFrom != null || dateTo != null ? " WHERE " : "") +
-                (dateFrom != null ? "r.report_date >= :dateFrom" : "") +
-                (dateFrom != null && dateTo != null ? " AND " : "") +
-                (dateTo != null ? "r.report_date <= :dateTo" : "") +
-                " GROUP BY r.report_date ORDER BY r.report_date";
-
-        List<TrendPoint> dailyTrend = executeTrendQuery(trendSql, dateFrom, dateTo, shiftId, lineId);
-
-        List<ChartDataPoint> passFailByType = getPassFailByType(dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> passFailByType = passFailByModule(where, dateFrom, dateTo, shiftId, lineId);
 
         List<KPICard> kpis = List.of(
                 KPICard.builder().label("Approval Rate").value(String.format("%.1f", approvalRate)).unit("%").build(),
@@ -124,39 +138,38 @@ public class AnalyticsService {
 
     public ChemicalConsumptionKPIResponse getChemicalConsumptionKPIs(LocalDate dateFrom,
                                                                      LocalDate dateTo, Long lineId) {
-        String base = "SELECT id, report_date, shift_id, line_id, created_by " +
-                "FROM chemical_consumption_reports";
-        StringBuilder where = new StringBuilder(" WHERE 1=1");
-        if (dateFrom != null) where.append(" AND report_date >= :dateFrom");
-        if (dateTo != null) where.append(" AND report_date <= :dateTo");
-        if (lineId != null) where.append(" AND line_id = :lineId");
-        String from = "FROM (" + base + where + ") r";
+        String where = buildWhere(dateFrom, dateTo, null, lineId);
 
-        long total = count(from, dateFrom, dateTo, null, lineId);
-        long dailyCount = countWithDateRange(
-                "SELECT id, report_date FROM chemical_consumption_reports", null, null);
+        long total = countReports(where, dateFrom, dateTo, null, lineId);
 
-        List<TrendPoint> dailyTrend = executeTrendQuery(
-                "SELECT report_date, COUNT(*) FROM chemical_consumption_reports" + where +
-                " GROUP BY report_date ORDER BY report_date", dateFrom, dateTo, null, lineId);
+        Query todayQuery = entityManager.createNativeQuery(
+                "SELECT COUNT(*) FROM report WHERE created_at::date = CURRENT_DATE");
+        long dailyCount = ((Number) todayQuery.getSingleResult()).longValue();
 
-        List<TrendPoint> weeklyTrend = executeTrendQuery(
-                "SELECT DATE_TRUNC('week', report_date)::date, COUNT(*) " +
-                "FROM chemical_consumption_reports" + where +
-                " GROUP BY DATE_TRUNC('week', report_date) ORDER BY 1", dateFrom, dateTo, null, lineId);
+        String sumWhere = where + " AND " + NUMERIC + " AND " + BOUNDED;
 
-        List<TrendPoint> monthlyTrend = executeTrendQuery(
-                "SELECT DATE_TRUNC('month', report_date)::date, COUNT(*) " +
-                "FROM chemical_consumption_reports" + where +
-                " GROUP BY DATE_TRUNC('month', report_date) ORDER BY 1", dateFrom, dateTo, null, lineId);
+        List<TrendPoint> dailyTrend = executeSumTrendQuery(
+                "SELECT r.started_at::date, COALESCE(SUM(CAST(v.observed_value AS NUMERIC)), 0) " +
+                VALUE_FROM + sumWhere + " GROUP BY r.started_at::date ORDER BY r.started_at::date",
+                where, dateFrom, dateTo, null, lineId);
 
-        String lineSql = "SELECT l.name, COUNT(*) FROM chemical_consumption_reports r " +
-                "JOIN line_master l ON l.id = r.line_id" + where +
-                " GROUP BY l.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> byLine = executeChartQuery(lineSql, dateFrom, dateTo, null, lineId);
+        List<TrendPoint> weeklyTrend = executeSumTrendQuery(
+                "SELECT DATE_TRUNC('week', r.started_at)::date, COALESCE(SUM(CAST(v.observed_value AS NUMERIC)), 0) " +
+                VALUE_FROM + sumWhere + " GROUP BY DATE_TRUNC('week', r.started_at) ORDER BY 1",
+                where, dateFrom, dateTo, null, lineId);
+
+        List<TrendPoint> monthlyTrend = executeSumTrendQuery(
+                "SELECT DATE_TRUNC('month', r.started_at)::date, COALESCE(SUM(CAST(v.observed_value AS NUMERIC)), 0) " +
+                VALUE_FROM + sumWhere + " GROUP BY DATE_TRUNC('month', r.started_at) ORDER BY 1",
+                where, dateFrom, dateTo, null, lineId);
+
+        List<ChartDataPoint> byLine = executeDoubleChartQuery(
+                "SELECT r.line_name, COALESCE(SUM(CAST(v.observed_value AS NUMERIC)), 0) " +
+                VALUE_FROM + sumWhere + " AND r.line_id IS NOT NULL" +
+                " GROUP BY r.line_name ORDER BY 2 DESC", where, dateFrom, dateTo, null, lineId);
 
         List<KPICard> kpis = List.of(
-                KPICard.builder().label("Total Chemical Reports").value(String.valueOf(total)).unit("").build(),
+                KPICard.builder().label("Total Reports").value(String.valueOf(total)).unit("").build(),
                 KPICard.builder().label("Today's Reports").value(String.valueOf(dailyCount)).unit("").build()
         );
 
@@ -171,108 +184,55 @@ public class AnalyticsService {
 
     public ProcessMonitoringKPIResponse getProcessMonitoringKPIs(LocalDate dateFrom,
                                                                   LocalDate dateTo, Long lineId) {
-        StringBuilder where = new StringBuilder(" WHERE 1=1");
-        if (dateFrom != null) where.append(" AND r.report_date >= :dateFrom");
-        if (dateTo != null) where.append(" AND r.report_date <= :dateTo");
-        if (lineId != null) where.append(" AND r.line_id = :lineId");
+        String where = buildWhere(dateFrom, dateTo, null, lineId);
 
-        String entrySql = "SELECT e.inspection_result as result, p.parameter_name, COUNT(*) as cnt " +
-                "FROM process_monitoring_entries e " +
-                "JOIN process_monitoring_reports r ON r.id = e.report_id " +
-                "LEFT JOIN parameter_master p ON p.id = e.parameter_id" +
-                where +
-                " GROUP BY e.inspection_result, p.parameter_name ORDER BY cnt DESC";
+        ValueStats stats = valueStats(where, dateFrom, dateTo, null, lineId);
+        double stability = stats.total > 0 ? (double) stats.pass / stats.total * 100 : 0;
 
-        Query query = entityManager.createNativeQuery(entrySql);
-        if (dateFrom != null) query.setParameter("dateFrom", dateFrom);
-        if (dateTo != null) query.setParameter("dateTo", dateTo);
-        if (lineId != null) query.setParameter("lineId", lineId);
+        long totalReports = countReports(where, dateFrom, dateTo, null, lineId);
 
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = query.getResultList();
-        long passCount = 0, failCount = 0, total = 0;
-        List<ChartDataPoint> failureFreq = new ArrayList<>();
-
-        for (Object[] row : rows) {
-            String result = (String) row[0];
-            String paramName = (String) row[1];
-            long cnt = ((Number) row[2]).longValue();
-            total += cnt;
-            if ("PASS".equals(result)) passCount += cnt;
-            else if ("FAIL".equals(result)) {
-                failCount += cnt;
-                if (paramName != null) {
-                    failureFreq.add(new ChartDataPoint(paramName, cnt));
-                }
-            }
-        }
-
-        double stability = total > 0 ? (double) passCount / total * 100 : 0;
-
-        String outOfSpecSql = "SELECT p.parameter_name, COUNT(*) FROM process_monitoring_entries e " +
-                "JOIN process_monitoring_reports r ON r.id = e.report_id " +
-                "JOIN parameter_master p ON p.id = e.parameter_id " +
-                "WHERE e.inspection_result = 'FAIL'" +
-                (dateFrom != null ? " AND r.report_date >= :dateFrom" : "") +
-                (dateTo != null ? " AND r.report_date <= :dateTo" : "") +
-                (lineId != null ? " AND r.line_id = :lineId" : "") +
-                " GROUP BY p.parameter_name ORDER BY COUNT(*) DESC";
-
-        query = entityManager.createNativeQuery(outOfSpecSql);
-        if (dateFrom != null) query.setParameter("dateFrom", dateFrom);
-        if (dateTo != null) query.setParameter("dateTo", dateTo);
-        if (lineId != null) query.setParameter("lineId", lineId);
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> outOfSpecRows = query.getResultList();
-        List<ChartDataPoint> outOfSpec = new ArrayList<>();
-        for (Object[] row : outOfSpecRows) {
-            outOfSpec.add(new ChartDataPoint((String) row[0], ((Number) row[1]).longValue()));
-        }
-
-        long totalReports = countReports("process_monitoring_reports", dateFrom, dateTo, null, lineId);
+        String failSql = "SELECT v.parameter_name, COUNT(*) " + VALUE_FROM +
+                where + " AND " + OUT_OF_SPEC +
+                " GROUP BY v.parameter_name ORDER BY COUNT(*) DESC";
+        List<ChartDataPoint> outOfSpec = executeChartQuery(failSql, where, dateFrom, dateTo, null, lineId);
 
         List<KPICard> kpis = List.of(
                 KPICard.builder().label("Process Stability").value(String.format("%.1f", stability)).unit("%").build(),
                 KPICard.builder().label("Total Reports").value(String.valueOf(totalReports)).unit("").build(),
-                KPICard.builder().label("Total Entries").value(String.valueOf(total)).unit("").build(),
-                KPICard.builder().label("Failures").value(String.valueOf(failCount)).unit("").build()
+                KPICard.builder().label("Total Entries").value(String.valueOf(stats.total)).unit("").build(),
+                KPICard.builder().label("Failures").value(String.valueOf(stats.fail)).unit("").build()
         );
 
         return ProcessMonitoringKPIResponse.builder()
                 .kpiCards(kpis)
                 .outOfSpecParameters(outOfSpec)
-                .failureFrequency(failureFreq)
+                .failureFrequency(new ArrayList<>(outOfSpec))
                 .build();
     }
 
     public ProductivityKPIResponse getProductivityKPIs(LocalDate dateFrom, LocalDate dateTo,
                                                        Long shiftId, Long lineId) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
-        String from = "FROM (" + base + ") r" + where;
+        String where = buildWhere(dateFrom, dateTo, shiftId, lineId);
 
-        long total = count(from, dateFrom, dateTo, shiftId, lineId);
+        long total = countReports(where, dateFrom, dateTo, shiftId, lineId);
 
-        String perDaySql = "SELECT r.report_date, COUNT(*) FROM (" + base + ") r" +
-                buildWhereClause(dateFrom, dateTo, shiftId, lineId) +
-                " GROUP BY r.report_date ORDER BY r.report_date";
-        List<TrendPoint> perDay = executeTrendQuery(perDaySql, dateFrom, dateTo, shiftId, lineId);
+        List<TrendPoint> perDay = executeTrendQuery(
+                "SELECT r.started_at::date, COUNT(*) FROM report r" + where +
+                " GROUP BY r.started_at::date ORDER BY r.started_at::date",
+                where, dateFrom, dateTo, shiftId, lineId);
 
-        String perShiftSql = "SELECT s.name, COUNT(*) FROM (" + base + ") r " +
-                "JOIN shifts s ON s.id = r.shift_id" +
-                buildWhereClause(dateFrom, dateTo, null, lineId) +
-                " GROUP BY s.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> perShift = executeChartQuery(perShiftSql, dateFrom, dateTo, null, lineId);
+        List<ChartDataPoint> perShift = executeChartQuery(
+                "SELECT r.shift_name, COUNT(*) FROM report r" + where +
+                " AND r.shift_id IS NOT NULL GROUP BY r.shift_name ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, shiftId, lineId);
 
-        String perOperatorSql = "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
-                "COUNT(*) FROM (" + base + ") r " +
-                "JOIN users u ON u.id = r.created_by" +
-                buildWhereClause(dateFrom, dateTo, shiftId, lineId) +
-                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> perOperator = executeChartQuery(perOperatorSql, dateFrom, dateTo, shiftId, lineId);
+        List<ChartDataPoint> perOperator = executeChartQuery(
+                "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), COUNT(*) " +
+                "FROM report r JOIN users u ON u.id = r.created_by" + where +
+                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, shiftId, lineId);
 
-        double avgApprovalHours = computeAvgApprovalHours(base, dateFrom, dateTo, shiftId, lineId);
+        double avgApprovalHours = computeAvgApprovalHours(where, dateFrom, dateTo, shiftId, lineId);
 
         List<KPICard> kpis = List.of(
                 KPICard.builder().label("Total Reports").value(String.valueOf(total)).unit("").build(),
@@ -289,46 +249,50 @@ public class AnalyticsService {
 
     public TimeAnalyticsResponse getTimeTrends(LocalDate dateFrom, LocalDate dateTo,
                                                Long shiftId, Long lineId) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, shiftId, lineId);
-        String from = "FROM (" + base + ") r" + where;
+        String where = buildWhere(dateFrom, dateTo, shiftId, lineId);
 
-        String dailySql = "SELECT r.report_date, COUNT(*) " + from +
-                " GROUP BY r.report_date ORDER BY r.report_date";
-        String weeklySql = "SELECT DATE_TRUNC('week', r.report_date)::date, COUNT(*) " + from +
-                " GROUP BY DATE_TRUNC('week', r.report_date) ORDER BY 1";
-        String monthlySql = "SELECT DATE_TRUNC('month', r.report_date)::date, COUNT(*) " + from +
-                " GROUP BY DATE_TRUNC('month', r.report_date) ORDER BY 1";
-        String yearlySql = "SELECT DATE_TRUNC('year', r.report_date)::date, COUNT(*) " + from +
-                " GROUP BY DATE_TRUNC('year', r.report_date) ORDER BY 1";
+        List<TrendPoint> daily = executeTrendQuery(
+                "SELECT r.started_at::date, COUNT(*) FROM report r" + where +
+                " GROUP BY r.started_at::date ORDER BY r.started_at::date",
+                where, dateFrom, dateTo, shiftId, lineId);
+        List<TrendPoint> weekly = executeTrendQuery(
+                "SELECT DATE_TRUNC('week', r.started_at)::date, COUNT(*) FROM report r" + where +
+                " GROUP BY DATE_TRUNC('week', r.started_at) ORDER BY 1",
+                where, dateFrom, dateTo, shiftId, lineId);
+        List<TrendPoint> monthly = executeTrendQuery(
+                "SELECT DATE_TRUNC('month', r.started_at)::date, COUNT(*) FROM report r" + where +
+                " GROUP BY DATE_TRUNC('month', r.started_at) ORDER BY 1",
+                where, dateFrom, dateTo, shiftId, lineId);
+        List<TrendPoint> yearly = executeTrendQuery(
+                "SELECT DATE_TRUNC('year', r.started_at)::date, COUNT(*) FROM report r" + where +
+                " GROUP BY DATE_TRUNC('year', r.started_at) ORDER BY 1",
+                where, dateFrom, dateTo, shiftId, lineId);
 
         return TimeAnalyticsResponse.builder()
-                .dailyTrend(executeTrendQuery(dailySql, dateFrom, dateTo, shiftId, lineId))
-                .weeklyTrend(executeTrendQuery(weeklySql, dateFrom, dateTo, shiftId, lineId))
-                .monthlyTrend(executeTrendQuery(monthlySql, dateFrom, dateTo, shiftId, lineId))
-                .yearlyTrend(executeTrendQuery(yearlySql, dateFrom, dateTo, shiftId, lineId))
+                .dailyTrend(daily)
+                .weeklyTrend(weekly)
+                .monthlyTrend(monthly)
+                .yearlyTrend(yearly)
                 .build();
     }
 
     public LinePerformanceResponse getLinePerformance(LocalDate dateFrom, LocalDate dateTo) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, null, null);
+        String where = buildWhere(dateFrom, dateTo, null, null);
 
-        String byLineSql = "SELECT l.name, COUNT(*) FROM (" + base + ") r " +
-                "JOIN line_master l ON l.id = r.line_id" + where +
-                " GROUP BY l.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> byLine = executeChartQuery(byLineSql, dateFrom, dateTo, null, null);
-
-        String rejectionSql = "SELECT l.name, COUNT(*) FROM (" + base + ") r " +
-                "JOIN line_master l ON l.id = r.line_id" + where +
-                " AND r.status = 'REJECTED' GROUP BY l.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> rejections = executeChartQuery(rejectionSql, dateFrom, dateTo, null, null);
-
-        String approvalSql = "SELECT l.name, " +
+        List<ChartDataPoint> byLine = executeChartQuery(
+                "SELECT r.line_name, COUNT(*) FROM report r" + where +
+                " AND r.line_id IS NOT NULL GROUP BY r.line_name ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> rejections = executeChartQuery(
+                "SELECT r.line_name, COUNT(*) FROM report r" + where +
+                " AND r.line_id IS NOT NULL AND r.status = 'REJECTED'" +
+                " GROUP BY r.line_name ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> approvalRate = executeDoubleChartQuery(
+                "SELECT r.line_name, " +
                 "ROUND(COUNT(*) FILTER (WHERE r.status = 'APPROVED') * 100.0 / NULLIF(COUNT(*), 0), 1) " +
-                "FROM (" + base + ") r JOIN line_master l ON l.id = r.line_id" + where +
-                " GROUP BY l.name ORDER BY 2 DESC";
-        List<ChartDataPoint> approvalRate = executeDoubleChartQuery(approvalSql, dateFrom, dateTo);
+                "FROM report r" + where + " AND r.line_id IS NOT NULL GROUP BY r.line_name ORDER BY 2 DESC",
+                where, dateFrom, dateTo, null, null);
 
         return LinePerformanceResponse.builder()
                 .reportsByLine(byLine)
@@ -338,25 +302,22 @@ public class AnalyticsService {
     }
 
     public ShiftPerformanceResponse getShiftPerformance(LocalDate dateFrom, LocalDate dateTo) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, null, null);
+        String where = buildWhere(dateFrom, dateTo, null, null);
 
-        String byShiftSql = "SELECT s.name, COUNT(*) FROM (" + base + ") r " +
-                "JOIN shifts s ON s.id = r.shift_id" + where +
-                " GROUP BY s.name ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> byShift = executeChartQuery(byShiftSql, dateFrom, dateTo, null, null);
-
-        String passRateSql = "SELECT s.name, " +
+        List<ChartDataPoint> byShift = executeChartQuery(
+                "SELECT r.shift_name, COUNT(*) FROM report r" + where +
+                " AND r.shift_id IS NOT NULL GROUP BY r.shift_name ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> passRate = executeDoubleChartQuery(
+                "SELECT r.shift_name, " +
                 "ROUND(COUNT(*) FILTER (WHERE r.status = 'APPROVED') * 100.0 / NULLIF(COUNT(*), 0), 1) " +
-                "FROM (" + base + ") r JOIN shifts s ON s.id = r.shift_id" + where +
-                " GROUP BY s.name ORDER BY 2 DESC";
-        List<ChartDataPoint> passRate = executeDoubleChartQuery(passRateSql, dateFrom, dateTo);
-
-        String failRateSql = "SELECT s.name, " +
+                "FROM report r" + where + " AND r.shift_id IS NOT NULL GROUP BY r.shift_name ORDER BY 2 DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> failRate = executeDoubleChartQuery(
+                "SELECT r.shift_name, " +
                 "ROUND(COUNT(*) FILTER (WHERE r.status = 'REJECTED') * 100.0 / NULLIF(COUNT(*), 0), 1) " +
-                "FROM (" + base + ") r JOIN shifts s ON s.id = r.shift_id" + where +
-                " GROUP BY s.name ORDER BY 2 DESC";
-        List<ChartDataPoint> failRate = executeDoubleChartQuery(failRateSql, dateFrom, dateTo);
+                "FROM report r" + where + " AND r.shift_id IS NOT NULL GROUP BY r.shift_name ORDER BY 2 DESC",
+                where, dateFrom, dateTo, null, null);
 
         return ShiftPerformanceResponse.builder()
                 .reportsByShift(byShift)
@@ -366,26 +327,25 @@ public class AnalyticsService {
     }
 
     public OperatorPerformanceResponse getOperatorPerformance(LocalDate dateFrom, LocalDate dateTo) {
-        String base = REPORT_UNION;
-        String where = buildWhereClause(dateFrom, dateTo, null, null);
+        String where = buildWhere(dateFrom, dateTo, null, null);
 
-        String submittedSql = "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
-                "COUNT(*) FROM (" + base + ") r " +
-                "JOIN users u ON u.id = r.created_by" + where +
-                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY COUNT(*) DESC";
-        List<ChartDataPoint> submitted = executeChartQuery(submittedSql, dateFrom, dateTo, null, null);
-
-        String approvalSql = "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
+        List<ChartDataPoint> submitted = executeChartQuery(
+                "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), COUNT(*) " +
+                "FROM report r JOIN users u ON u.id = r.created_by" + where +
+                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY COUNT(*) DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> approvalPct = executeDoubleChartQuery(
+                "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
                 "ROUND(COUNT(*) FILTER (WHERE r.status = 'APPROVED') * 100.0 / NULLIF(COUNT(*), 0), 1) " +
-                "FROM (" + base + ") r JOIN users u ON u.id = r.created_by" + where +
-                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY 2 DESC";
-        List<ChartDataPoint> approvalPct = executeDoubleChartQuery(approvalSql, dateFrom, dateTo);
-
-        String rejectionSql = "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
+                "FROM report r JOIN users u ON u.id = r.created_by" + where +
+                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY 2 DESC",
+                where, dateFrom, dateTo, null, null);
+        List<ChartDataPoint> rejectionPct = executeDoubleChartQuery(
+                "SELECT COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id), " +
                 "ROUND(COUNT(*) FILTER (WHERE r.status = 'REJECTED') * 100.0 / NULLIF(COUNT(*), 0), 1) " +
-                "FROM (" + base + ") r JOIN users u ON u.id = r.created_by" + where +
-                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY 2 DESC";
-        List<ChartDataPoint> rejectionPct = executeDoubleChartQuery(rejectionSql, dateFrom, dateTo);
+                "FROM report r JOIN users u ON u.id = r.created_by" + where +
+                " GROUP BY u.first_name, u.last_name, u.employee_id ORDER BY 2 DESC",
+                where, dateFrom, dateTo, null, null);
 
         return OperatorPerformanceResponse.builder()
                 .reportsSubmitted(submitted)
@@ -394,170 +354,85 @@ public class AnalyticsService {
                 .build();
     }
 
-    // ---- helper methods ----
+    // ---- helpers ----
 
-    private String buildWhereClause(LocalDate dateFrom, LocalDate dateTo,
-                                    Long shiftId, Long lineId) {
+    private String buildWhere(LocalDate dateFrom, LocalDate dateTo, Long shiftId, Long lineId) {
         StringBuilder sb = new StringBuilder(" WHERE 1=1");
-        if (dateFrom != null) sb.append(" AND r.report_date >= :dateFrom");
-        if (dateTo != null) sb.append(" AND r.report_date <= :dateTo");
+        if (dateFrom != null) sb.append(" AND r.started_at::date >= :dateFrom");
+        if (dateTo != null) sb.append(" AND r.started_at::date <= :dateTo");
         if (shiftId != null) sb.append(" AND r.shift_id = :shiftId");
         if (lineId != null) sb.append(" AND r.line_id = :lineId");
         return sb.toString();
     }
 
-    private void setFilterParams(Query query, LocalDate dateFrom, LocalDate dateTo,
+    private void bindWhereParams(Query query, String sql, LocalDate dateFrom, LocalDate dateTo,
                                  Long shiftId, Long lineId) {
-        if (dateFrom != null) query.setParameter("dateFrom", dateFrom);
-        if (dateTo != null) query.setParameter("dateTo", dateTo);
-        if (shiftId != null) query.setParameter("shiftId", shiftId);
-        if (lineId != null) query.setParameter("lineId", lineId);
-    }
-
-    private void bindParamsIfPresent(Query query, String sql, LocalDate dateFrom, LocalDate dateTo,
-                                     Long shiftId, Long lineId) {
         if (dateFrom != null && sql.contains(":dateFrom")) query.setParameter("dateFrom", dateFrom);
         if (dateTo != null && sql.contains(":dateTo")) query.setParameter("dateTo", dateTo);
         if (shiftId != null && sql.contains(":shiftId")) query.setParameter("shiftId", shiftId);
         if (lineId != null && sql.contains(":lineId")) query.setParameter("lineId", lineId);
     }
 
-    private long count(String from) {
-        Query query = entityManager.createNativeQuery("SELECT COUNT(*) " + from);
-        Number result = (Number) query.getSingleResult();
-        return result != null ? result.longValue() : 0;
-    }
-
-    private long count(String from, LocalDate dateFrom, LocalDate dateTo,
-                       Long shiftId, Long lineId) {
-        String sql = "SELECT COUNT(*) " + from;
-        Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
-        Number result = (Number) query.getSingleResult();
-        return result != null ? result.longValue() : 0;
-    }
-
-    private long countWithCondition(String from, String condition) {
-        String sql = "SELECT COUNT(*) " + from + " AND " + condition;
-        Query query = entityManager.createNativeQuery(sql);
-        Number result = (Number) query.getSingleResult();
-        return result != null ? result.longValue() : 0;
-    }
-
-    private long countWithCondition(String from, String condition, LocalDate dateFrom,
-                                    LocalDate dateTo, Long shiftId, Long lineId) {
-        String sql = "SELECT COUNT(*) " + from + " AND " + condition;
-        Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
-        Number result = (Number) query.getSingleResult();
-        return result != null ? result.longValue() : 0;
-    }
-
-    private long countReports(String table, LocalDate dateFrom, LocalDate dateTo,
+    private long countReports(String where, LocalDate dateFrom, LocalDate dateTo,
                               Long shiftId, Long lineId) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM " + table + " WHERE 1=1");
-        if (dateFrom != null) sql.append(" AND report_date >= :dateFrom");
-        if (dateTo != null) sql.append(" AND report_date <= :dateTo");
-        if (shiftId != null) sql.append(" AND shift_id = :shiftId");
-        if (lineId != null) sql.append(" AND line_id = :lineId");
-
-        Query query = entityManager.createNativeQuery(sql.toString());
-        setFilterParams(query, dateFrom, dateTo, shiftId, lineId);
+        String sql = "SELECT COUNT(*) FROM report r" + where;
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
         Number result = (Number) query.getSingleResult();
         return result != null ? result.longValue() : 0;
     }
 
-    private long countWithDateRange(String base, LocalDate dateFrom, LocalDate dateTo) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM (" + base + ") r WHERE 1=1");
-        if (dateFrom != null) sql.append(" AND report_date >= :dateFrom");
-        if (dateTo != null) sql.append(" AND report_date <= :dateTo");
-        Query query = entityManager.createNativeQuery(sql.toString());
-        if (dateFrom != null) query.setParameter("dateFrom", dateFrom);
-        if (dateTo != null) query.setParameter("dateTo", dateTo);
+    private long countWithStatus(String status, String where, LocalDate dateFrom, LocalDate dateTo,
+                                 Long shiftId, Long lineId) {
+        String sql = "SELECT COUNT(*) FROM report r" + where + " AND r.status = '" + status + "'";
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
         Number result = (Number) query.getSingleResult();
         return result != null ? result.longValue() : 0;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> aggregateByColumn(String from, String column, LocalDate dateFrom,
-                                                   LocalDate dateTo, Long shiftId, Long lineId) {
-        String sql = "SELECT " + column + ", COUNT(*) " + from + " GROUP BY " + column + " ORDER BY COUNT(*) DESC";
+    private ValueStats valueStats(String where, LocalDate dateFrom, LocalDate dateTo,
+                                  Long shiftId, Long lineId) {
+        String sql = "SELECT " +
+                "COUNT(*) AS total, " +
+                "COUNT(*) FILTER (WHERE " + WITHIN_SPEC + ") AS pass, " +
+                "COUNT(*) FILTER (WHERE " + OUT_OF_SPEC + ") AS fail " +
+                VALUE_FROM + where;
         Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
+        Object[] row = (Object[]) query.getSingleResult();
+        return new ValueStats(
+                ((Number) row[0]).longValue(),
+                ((Number) row[1]).longValue(),
+                ((Number) row[2]).longValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ChartDataPoint> passFailByModule(String where, LocalDate dateFrom, LocalDate dateTo,
+                                                  Long shiftId, Long lineId) {
+        String sql = "SELECT r.module_name, " +
+                "COUNT(*) FILTER (WHERE " + WITHIN_SPEC + ") AS pass, " +
+                "COUNT(*) FILTER (WHERE " + OUT_OF_SPEC + ") AS fail " +
+                VALUE_FROM + where + " GROUP BY r.module_name ORDER BY r.module_name";
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<ChartDataPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
-            result.add(new ChartDataPoint(
-                    row[0] != null ? row[0].toString() : "UNKNOWN",
-                    ((Number) row[1]).longValue()));
+            String module = (String) row[0];
+            long pass = ((Number) row[1]).longValue();
+            long fail = ((Number) row[2]).longValue();
+            if (pass > 0) result.add(new ChartDataPoint(module + " - PASS", pass));
+            if (fail > 0) result.add(new ChartDataPoint(module + " - FAIL", fail));
         }
         return result;
     }
 
     @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> aggregateWithJoin(String from, String fkColumn,
-                                                   String joinTable, String nameColumn,
-                                                   LocalDate dateFrom, LocalDate dateTo,
-                                                   Long shiftId, Long lineId) {
-        // from contains "FROM (...) r WHERE 1=1 ...", extract the part before WHERE
-        String whereClause = "";
-        String baseFrom = from;
-        int whereIdx = from.indexOf(" WHERE ");
-        if (whereIdx >= 0) {
-            whereClause = from.substring(whereIdx);
-            baseFrom = from.substring(0, whereIdx);
-        }
-        String sql = "SELECT j." + nameColumn + ", COUNT(*) " + baseFrom +
-                " JOIN " + joinTable + " j ON j.id = " + fkColumn +
-                whereClause +
-                " GROUP BY j." + nameColumn + " ORDER BY COUNT(*) DESC";
+    private List<TrendPoint> executeTrendQuery(String sql, String where, LocalDate dateFrom,
+                                               LocalDate dateTo, Long shiftId, Long lineId) {
         Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
-        List<Object[]> rows = query.getResultList();
-        List<ChartDataPoint> result = new ArrayList<>();
-        for (Object[] row : rows) {
-            result.add(new ChartDataPoint(
-                    row[0] != null ? row[0].toString() : "UNKNOWN",
-                    ((Number) row[1]).longValue()));
-        }
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> executeChartQuery(String sql, LocalDate dateFrom,
-                                                   LocalDate dateTo, Long shiftId, Long lineId) {
-        Query query = entityManager.createNativeQuery(sql);
-        setFilterParams(query, dateFrom, dateTo, shiftId, lineId);
-        List<Object[]> rows = query.getResultList();
-        List<ChartDataPoint> result = new ArrayList<>();
-        for (Object[] row : rows) {
-            result.add(new ChartDataPoint(
-                    row[0] != null ? row[0].toString() : "",
-                    ((Number) row[1]).longValue()));
-        }
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> executeDoubleChartQuery(String sql, LocalDate dateFrom,
-                                                         LocalDate dateTo) {
-        Query query = entityManager.createNativeQuery(sql);
-        setFilterParams(query, dateFrom, dateTo, null, null);
-        List<Object[]> rows = query.getResultList();
-        List<ChartDataPoint> result = new ArrayList<>();
-        for (Object[] row : rows) {
-            result.add(new ChartDataPoint(
-                    row[0] != null ? row[0].toString() : "",
-                    Math.round(((Number) row[1]).doubleValue())));
-        }
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<TrendPoint> executeTrendQuery(String sql, LocalDate dateFrom, LocalDate dateTo,
-                                               Long shiftId, Long lineId) {
-        Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
         List<TrendPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
@@ -570,67 +445,65 @@ public class AnalyticsService {
         return result;
     }
 
-    private double computeAvgApprovalHours(String base, LocalDate dateFrom, LocalDate dateTo,
-                                           Long shiftId, Long lineId) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT AVG(EXTRACT(EPOCH FROM (r.approved_at - r.created_at)) / 3600.0) " +
-                "FROM (" + base + ") r WHERE r.status = 'APPROVED' AND r.approved_at IS NOT NULL");
-        if (dateFrom != null) sql.append(" AND r.report_date >= :dateFrom");
-        if (dateTo != null) sql.append(" AND r.report_date <= :dateTo");
-        if (shiftId != null) sql.append(" AND r.shift_id = :shiftId");
-        if (lineId != null) sql.append(" AND r.line_id = :lineId");
-
-        Query query = entityManager.createNativeQuery(sql.toString());
-        setFilterParams(query, dateFrom, dateTo, shiftId, lineId);
-        Number result = (Number) query.getSingleResult();
-        return result != null ? result.doubleValue() : 0;
-    }
-
     @SuppressWarnings("unchecked")
-    private List<ChartDataPoint> getPassFailByType(LocalDate dateFrom, LocalDate dateTo,
-                                                    Long shiftId, Long lineId) {
-        String entryUnion = buildEntryUnion();
-        String entryWhere = buildEntryWhere(dateFrom, dateTo, shiftId, lineId);
-
-        String sql = "SELECT e.report_type, e.result, COUNT(*) FROM (" + entryUnion + ") e" +
-                entryWhere +
-                " GROUP BY e.report_type, e.result ORDER BY e.report_type, e.result";
-
+    private List<TrendPoint> executeSumTrendQuery(String sql, String where, LocalDate dateFrom,
+                                                  LocalDate dateTo, Long shiftId, Long lineId) {
         Query query = entityManager.createNativeQuery(sql);
-        bindParamsIfPresent(query, sql, dateFrom, dateTo, shiftId, lineId);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
         List<Object[]> rows = query.getResultList();
-        List<ChartDataPoint> result = new ArrayList<>();
+        List<TrendPoint> result = new ArrayList<>();
         for (Object[] row : rows) {
-            result.add(new ChartDataPoint(
-                    row[0] + " - " + row[1],
-                    ((Number) row[2]).longValue()));
+            Date d = (Date) row[0];
+            result.add(TrendPoint.builder()
+                    .date(d != null ? d.toLocalDate() : null)
+                    .value(Math.round(((Number) row[1]).doubleValue()))
+                    .build());
         }
         return result;
     }
 
-    private String buildEntryUnion() {
-        return "SELECT 'PROCESS_MONITORING' as report_type, inspection_result as result, " +
-               "report_id FROM process_monitoring_entries UNION ALL " +
-               "SELECT 'CHEMICAL_CONSUMPTION', inspection_result, report_id " +
-               "FROM chemical_consumption_entries UNION ALL " +
-               "SELECT 'DAILY_STARTUP', inspection_result, report_id " +
-               "FROM daily_startup_entries UNION ALL " +
-               "SELECT 'FIRST_PIECE_INSPECTION', inspection_result, report_id " +
-               "FROM first_piece_inspection_entries UNION ALL " +
-               "SELECT 'DAILY_INSPECTION', inspection_result, report_id " +
-               "FROM daily_inspection_entries UNION ALL " +
-               "SELECT 'PDI', inspection_result, report_id " +
-               "FROM pre_delivery_inspection_entries";
+    @SuppressWarnings("unchecked")
+    private List<ChartDataPoint> executeChartQuery(String sql, String where, LocalDate dateFrom,
+                                                   LocalDate dateTo, Long shiftId, Long lineId) {
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
+        List<Object[]> rows = query.getResultList();
+        List<ChartDataPoint> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            result.add(new ChartDataPoint(
+                    row[0] != null ? row[0].toString() : "",
+                    ((Number) row[1]).longValue()));
+        }
+        return result;
     }
 
-    private String buildEntryWhere(LocalDate dateFrom, LocalDate dateTo,
-                                   Long shiftId, Long lineId) {
-        StringBuilder sb = new StringBuilder(" WHERE 1=1");
-        sb.append(" AND e.result IN ('PASS','FAIL','NOT_APPLICABLE')");
-        if (dateFrom != null) {
-            sb.append(" AND EXISTS (SELECT 1 FROM process_monitoring_reports pm WHERE pm.id = e.report_id AND pm.report_date >= :dateFrom)");
+    @SuppressWarnings("unchecked")
+    private List<ChartDataPoint> executeDoubleChartQuery(String sql, String where, LocalDate dateFrom,
+                                                         LocalDate dateTo, Long shiftId, Long lineId) {
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
+        List<Object[]> rows = query.getResultList();
+        List<ChartDataPoint> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            result.add(new ChartDataPoint(
+                    row[0] != null ? row[0].toString() : "",
+                    Math.round(((Number) row[1]).doubleValue())));
         }
-        return sb.toString();
+        return result;
+    }
+
+    private double computeAvgApprovalHours(String where, LocalDate dateFrom, LocalDate dateTo,
+                                           Long shiftId, Long lineId) {
+        String sql = "SELECT AVG(EXTRACT(EPOCH FROM (r.approved_at - r.created_at)) / 3600.0) " +
+                "FROM report r WHERE r.status = 'APPROVED' AND r.approved_at IS NOT NULL" +
+                where.replaceFirst(" WHERE 1=1", "");
+        Query query = entityManager.createNativeQuery(sql);
+        bindWhereParams(query, sql, dateFrom, dateTo, shiftId, lineId);
+        Number result = (Number) query.getSingleResult();
+        return result != null ? result.doubleValue() : 0;
+    }
+
+    private record ValueStats(long total, long pass, long fail) {
     }
 
 }

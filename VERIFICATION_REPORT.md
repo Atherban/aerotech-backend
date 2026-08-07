@@ -23,10 +23,10 @@ Phase 1 Initial Setup + Security & Roles), and their backend capability:
 | 8 | Update / delete shift | `PUT`/`DELETE /api/shifts/{id}` | shifts | Shift | UpdateShiftRequest | ShiftRepository | ShiftService | ShiftController | ✅ | ✅ | ✅ | PUT: S-A/ADMIN, DEL: SUPER_ADMIN | ✅ | **Complete** |
 | 9 | Create line | `POST /api/lines` | line_master | Line | CreateLineRequest | LineRepository | LineService | LineController | ✅ | ✅ | ✅ | SUPER_ADMIN/ADMIN | ✅ | **Complete** |
 | 10 | Update / delete line | `PUT`/`DELETE /api/lines/{id}` | line_master | Line | UpdateLineRequest | LineRepository | LineService | LineController | ✅ | ✅ | ✅ | PUT: S-A/ADMIN, DEL: SUPER_ADMIN | ✅ | **Complete** |
-| 11 | Select predefined report type | `GET /api/report-types` | — (enum) | — | ReportTypeResponse | — | ReportTypeController (static) | ✅ | ✅ | ✅ | any auth | ✅ | **Complete** |
-| 12 | Configure parameters per report type | `POST`/`PUT`/`DELETE /api/parameters` + `GET /api/parameters/report-type/{type}` | parameter_master | ParameterMaster | Create/UpdateParameterRequest | ParameterMasterRepository | ParameterMasterService | ParameterMasterController | ✅ | ✅ | ✅ | W: S-A/ADMIN, DEL: SUPER_ADMIN | ✅ | **Complete** |
-| 13 | Approve / reject reports | `POST /api/reports/{module}/{id}/approve\|reject` (6 modules) | report tables | 6 × Report/Entry | Approve/Submit request DTOs | 12 report repos | AbstractReportService + 6 services | 6 controllers | ✅ | ✅ | ✅ @Valid | SUPER_ADMIN/ADMIN | ✅ | **Complete** |
-| 14 | Delete reports | `DELETE /api/reports/{module}/{id}` (6) | report tables | 6 × Report | — | 6 report repos | AbstractReportService | 6 controllers | ✅ | ✅ | ✅ | SUPER_ADMIN | ✅ | **Complete** |
+| 11 | Select report module / category | `GET /api/module-types` + `GET /api/modules` | module_type/module | ModuleType/Module | ModuleTypeResponse/ModuleResponse | ModuleTypeRepository/ModuleRepository | ModuleTypeService/ModuleService | ModuleTypeController/ModuleController | ✅ | ✅ | ✅ | SUPER_ADMIN/ADMIN | ✅ | **Complete** |
+| 12 | Configure global parameters & process bindings | `POST`/`PUT`/`DELETE /api/module-parameters` + `/api/processes/{processId}/parameters` | parameter/process_parameter | Parameter/ProcessParameter | Create/UpdateParameterRequest + Create/UpdateProcessParameterRequest | ParameterRepository/ProcessParameterRepository | ParameterService/ProcessParameterService | ModuleParameterController/ProcessParameterController | ✅ | ✅ | ✅ | W: S-A/ADMIN, DEL: SUPER_ADMIN | ✅ | **Complete** |
+| 13 | Approve / reject reports | — | report | Report | — | — | — | — | ❌ | ❌ | — | — | — | **Not implemented (V1.x)** |
+| 14 | Delete reports | — | report | Report | — | — | — | — | ❌ | ❌ | — | — | — | **Not implemented (V1.x)** |
 | 15 | View analytics | `GET /api/analytics/*` (9) | report tables | — | 12 response DTOs | — | AnalyticsService | AnalyticsController | ✅ | ✅ | ✅ | SUPER_ADMIN/ADMIN | ✅ | **Complete** |
 | 16 | View audit logs | `GET /api/audit-logs*` (3) | audit_logs | AuditLog | AuditLogResponse/AuditFilterRequest | AuditRepository | AuditService | AuditController | ✅ | ✅ | ✅ | SUPER_ADMIN/ADMIN | ✅ | **Complete** |
 | 17 | Manage system settings | `GET/POST/PUT/DELETE /api/settings*` (8) | system_settings | SystemSetting | Create/UpdateSettingRequest | SystemSettingRepository | SettingService | SettingController | ✅ | ✅ | ✅ | W: SUPER_ADMIN, R: S-A/ADMIN | ✅ | **Complete** |
@@ -48,11 +48,11 @@ users, by design):
 | # | Business action | Backend capability | Status |
 |---|---|---|---|
 | 1 | Log in | `POST /api/auth/login` | **Complete** |
-| 2 | Approve / reject submitted reports (all 6 types) | `POST /api/reports/{module}/{id}/approve\|reject` | **Complete** |
-| 3 | View reports (list + by id) | `GET /api/reports/{module}` + `/{id}` | **Complete** |
+| 2 | Review / approve or reject submitted reports | `GET /api/report-engine/reports/{reportId}` (approval endpoint is a V1.x item) | **Incomplete (V1.x)** |
+| 3 | View reports / history | `GET /api/report-engine/reports/{reportId}` + `/reports/my` + `GET /api/search` | **Complete** |
 | 4 | View dashboard | `GET /api/reports/dashboard/*` (10) | **Complete** |
 | 5 | View analytics | `GET /api/analytics/*` (9) | **Complete** |
-| 6 | Create / update master data (lines, shifts, parameters) | `POST`/`PUT` for lines, shifts, parameters | **Complete** |
+| 6 | Create / update master data (lines, shifts, global parameters, modules) | `POST`/`PUT` for lines, shifts, `parameter module-parameters`, modules | **Complete** |
 | 7 | View users (not create/delete) | `GET /api/users*` | **Complete** |
 | 8 | View settings | `GET /api/settings*` | **Complete** |
 | 9 | View audit logs | `GET /api/audit-logs*` | **Complete** |
@@ -70,15 +70,15 @@ Business actions the Staff should perform (per Phase 2 Daily Operation):
 | # | Business action | Backend capability | Status |
 |---|---|---|---|
 | 1 | Log in | `POST /api/auth/login` | **Complete** |
-| 2 | Select report type | `GET /api/report-types` | **Complete** |
-| 3 | Backend loads configured parameters for report type | `GET /api/parameters/report-type/{type}` | **Complete** |
+| 2 | Start a module report (template frozen) | `POST /api/report-engine/start` | **Complete** |
+| 3 | Backend loads configured processes/parameters for the session | `GET /api/report-engine/sessions/{sessionId}/current` + `recorded` | **Complete** |
 | 4 | Select production line | `GET /api/lines` | **Complete** |
 | 5 | Shift auto-detection (incl. overnight) | `GET /api/shifts/current` + `ShiftService.findShiftFor` on create | **Complete** |
-| 6 | Create report (draft) with entries | `POST /api/reports/{module}` (6) | **Complete** |
-| 7 | Submit report for approval | `POST /api/reports/{module}/{id}/submit` | **Complete** |
-| 8 | View reports / report history | `GET /api/reports/{module}` + `/{id}` + paginated search | **Complete** |
+| 6 | Capture each process' values & save draft progress | `POST /api/report-engine/sessions/{sessionId}/save-next` | **Complete** |
+| 7 | Submit completed report | `POST /api/report-engine/sessions/{sessionId}/save-submit` | **Complete** |
+| 8 | View reports / report history | `GET /api/report-engine/reports/{reportId}` + `my` + `GET /api/search` | **Complete** |
 | 9 | View dashboard | `GET /api/reports/dashboard/*` (10) | **Complete** |
-| 10 | Search reports / users / parameters | `GET /api/reports/search`, `GET /api/search` | **Complete** |
+| 10 | Search reports / users / parameters | `GET /api/search` | **Complete** |
 | 11 | Upload / view / download attachments | `POST`/`GET`/`GET download` `/api/attachments*` | **Complete** |
 | 12 | View / read notifications | `GET`/`PATCH` `/api/notifications*` | **Complete** |
 | 13 | Change own password | `PUT /api/users/change-password` | **Complete** |
@@ -103,9 +103,9 @@ Business actions the Staff should perform (per Phase 2 Daily Operation):
 
 | Area | What exists | What is missing / partial |
 |---|---|---|
-| **Report edit / resubmit** | Reject workflow writes status=REJECTED + `remarks`; report can be resubmitted only after edit — but there is no edit path. | No `PUT/PATCH /api/reports/{module}/{id}`. (See Missing Business Capability.) |
+| **Report edit / resume** | Sessions persist as work-in-progress; `save-next` advances a report one process at a time. | **No edit of a submitted/`SUBMITTED` report, and no approve/reject workflow in V1** (approval fields `approved_at`/`approved_by` are forward-compatible only). |
 | **Audit trail** | Full read model (`audit_logs` table, `AuditService`, 3 endpoints, statistics, Specification filter). | **Read-only**: nothing in the codebase writes `audit_logs` (no `AuditLogRepository.save` caller anywhere). Auth/report/master actions do not record audit entries, so the audit log is effectively always empty. Documented as "(currently read-only) audit-log service". |
-| **Notifications** | Full notification store + API (`notifications` table, `NotificationService`, 6 endpoints, unread count). | **In-app only**: workflow-triggered notifications now exist — report create/submit (`REPORT_CREATED`/`REPORT_SUBMITTED` to creator), approve/reject (`REPORT_APPROVED`/`REPORT_REJECTED` to creator), user creation (`USER_CREATED` + `WELCOME`) and password change (`PASSWORD_CHANGED`) all write via `NotificationChannel`. No external channels (email/SMS/push) yet. |
+| **Notifications** | Full notification store + API (`notifications` table, `NotificationService`, 6 endpoints, unread count). | **In-app only; user-module emission only**: notifications are written only for user-account events (`USER_CREATED` + `WELCOME`, `PASSWORD_CHANGED`) via `NotificationChannel` in `UserService`. The report engine emits **no** notifications, and no external channels (email/SMS/push) exist yet. |
 | **Shift validation** | Shift CRUD + overnight detection works. | `CreateShiftRequest.startTime/endTime` are not `@NotNull`; empty times silently allowed. Also no overlap validation (by design — only name is unique). |
 | **Submit metadata** | Submit transition enforced (DRAFT→SUBMITTED). | No `submittedBy`/`submittedAt` columns recorded (by design). |
 | **Report number sequence** | Generated as `{PREFIX}-{yyyyMMdd}-%05d`. | Uses `count()+1` (no DB sequence); race-prone and shifts after deletes (documented in `API_DOCUMENTATION.md`). |

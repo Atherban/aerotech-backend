@@ -1,6 +1,6 @@
 # CED Operations — REST API Documentation
 
-> Complete reference for every HTTP endpoint implemented in the `ced-ops-backend` Spring Boot service (Java 21, Spring Boot 3). Sources of truth: the controller/service/entity source code (verified: **130 HTTP operations across 56 path templates** across 21 controllers) and the running application's OpenAPI 3 spec (regenerated at runtime from `/v3/api-docs`). Every successful JSON response is wrapped in the `ApiResponse<T>` envelope; every error uses the `ApiError` envelope.
+> Complete reference for every HTTP endpoint implemented in the `ced-ops-backend` Spring Boot service (Java 21, Spring Boot 3). Sources of truth: the controller/service/entity source code (verified: **118 HTTP operations across 87 path templates** across 18 controllers) and the committed OpenAPI 3 snapshot (`api-docs.json`, regenerated from source and kept in sync). Every successful JSON response is wrapped in the `ApiResponse<T>` envelope; every error uses the `ApiError` envelope.
 
 ## Table of Contents
 
@@ -8,53 +8,51 @@
 2. [Authentication & Authorization](#2-authentication--authorization)
 3. [Common Response Envelope](#3-common-response-envelope)
 4. [Pagination](#4-pagination)
-5. [Report Workflow (shared across the six report modules)](#5-report-workflow-shared-across-the-six-report-modules)
+5. [Report Engine Workflow](#5-report-engine-workflow)
 6. [Authentication](#6-authentication)
 7. [Users](#7-users)
 8. [Master Data — Lines](#8-master-data--lines)
 9. [Master Data — Shifts](#9-master-data--shifts)
-10. [Master Data — Parameters](#10-master-data--parameters)
-11. [Report Types](#11-report-types)
-12. [Settings](#12-settings)
-13. [Reports — Process Monitoring](#13-reports--process-monitoring)
-14. [Reports — Chemical Consumption](#14-reports--chemical-consumption)
-15. [Reports — Daily Startup](#15-reports--daily-startup)
-16. [Reports — Daily Inspection](#16-reports--daily-inspection)
-17. [Reports — First Piece Inspection](#17-reports--first-piece-inspection)
-18. [Reports — Pre-Delivery Inspection](#18-reports--pre-delivery-inspection)
-19. [Dashboard](#19-dashboard)
-20. [Global Search](#20-global-search)
-21. [Analytics](#21-analytics)
-22. [Integrations](#22-integrations)
-23. [Attachments](#23-attachments)
-24. [Notifications](#24-notifications)
-25. [Audit Logs](#25-audit-logs)
-26. [Appendix A — DTO Reference](#26-appendix-a--dto-reference)
-27. [Appendix B — Status Codes](#27-appendix-b--status-codes)
+10. [Settings](#10-settings)
+11. [Dashboard](#11-dashboard)
+12. [Global Search](#12-global-search)
+13. [Analytics](#13-analytics)
+14. [Integrations](#14-integrations)
+15. [Attachments](#15-attachments)
+16. [Notifications](#16-notifications)
+17. [Audit Logs](#17-audit-logs)
+18. [Module-Driven Master Data APIs](#18-module-driven-master-data-apis)
+19. [Configuration-Driven Report Engine APIs](#19-configuration-driven-report-engine-apis)
+20. [Appendix A — DTO Reference](#20-appendix-a--dto-reference)
+21. [Appendix B — Status Codes](#21-appendix-b--status-codes)
 
 ## 1. Overview
 
-The backend exposes a production-operations domain: user & role management, master data (lines, shifts, parameters), six report types covering the shop-floor workflow (Process Monitoring, Chemical Consumption, Daily Startup, Daily Inspection, First Piece Inspection, Pre-Delivery Inspection), a dashboard and unified search over reports, users and parameters, analytics, integrations, attachments, notifications, settings, and a (currently read-only) audit-log service. The backend provides structured JSON APIs only; PDF/Excel/CSV/print export is implemented by the frontend.
+The backend exposes a production-operations domain: user & role management, master data (lines, shifts, and the module-driven hierarchy — module types, modules, template versions, processes, global parameters), a **configuration-driven report engine** (report sessions and completed reports), a dashboard, unified search over reports/users/parameters, analytics, integrations, attachments, notifications, settings, and a (currently read-only) audit-log service. The backend provides structured JSON APIs only; PDF/Excel/CSV/print export is implemented by the frontend.
 
 Key conventions:
 - **Base URL:** `http://<host>:3000` (`application.properties`; PostgreSQL `ced_ops` on port 5432).
 - **Content type:** `application/json` for JSON bodies/responses; `multipart/form-data` for uploads.
 - **Response envelope:** every success is `ApiResponse<T>` (`{success, message, data}`); every failure is `ApiError` (section 3).
 - **Pagination:** list endpoints return `PageResponse<T>` and accept `page`/`size` (section 4).
-- **Report status lifecycle:** `DRAFT -> SUBMITTED -> APPROVED | REJECTED` (section 5).
+- **Report lifecycle:** `ReportSession IN_PROGRESS → COMPLETED`; a completed `report` starts `SUBMITTED` (approval columns are forward-compatible). See section 5 and 19.
+
+> **Migration status (Phase 5 complete):** the legacy hardcoded ReportType
+> architecture (six report modules, the report-type parameter catalog, the
+> report-type catalog endpoint, and the dead legacy search stack) has been
+> **removed**. The Generic Report Engine is the only report architecture; its
+> schema is `report_session` / `recorded_process` / `recorded_value` / `report`.
 
 Report-type catalog:
 
-| API path segment | Report | Number prefix | Tables |
-|---|---|---|---|
-| `process-monitoring` | Process Monitoring | `PMR` | `process_monitoring_reports` / `process_monitoring_entries` |
-| `chemical-consumption` | Chemical Consumption | `CCR` | `chemical_consumption_reports` / `chemical_consumption_entries` |
-| `daily-startup` | Daily Startup | `DSR` | `daily_startup_reports` / `daily_startup_entries` |
-| `daily-inspection` | Daily Inspection | `DIR` | `daily_inspection_reports` / `daily_inspection_entries` |
-| `first-piece-inspection` | First Piece Inspection | `FPI` | `first_piece_inspection_reports` / `first_piece_inspection_entries` |
-| `pre-delivery-inspection` | Pre-Delivery Inspection | `PDI` | `pre_delivery_inspection_reports` / `pre_delivery_inspection_entries` |
+The engine schema: `report_session`, `recorded_process`, `recorded_value`, and
+`report` (completed report).
 
-Other core tables: `users`, `roles`, `refresh_token`, `line_master`, `shifts`, `parameter_master`, `system_settings`, `integrations`, `integration_execution_histories`, `attachments`, `notifications`, `audit_logs`.
+Other core tables: `users`, `roles`, `refresh_token`, `line_master`, `shifts`,
+`module_type`, `module`, `module_template_version`, `module_process`,
+`parameter`, `process_parameter`, `system_settings`, `integrations`,
+`integration_execution_histories`, `attachments`, `notifications`,
+`audit_logs`.
 
 ## 2. Authentication & Authorization
 
@@ -71,15 +69,15 @@ Authentication is **JWT bearer token** based (`bearerAuth` HTTP scheme, defined 
 | Users create/update/delete/status | `SUPER_ADMIN` only |
 | Users list/get | `SUPER_ADMIN`, `ADMIN` |
 | Users profile / change-password / auth me / validate | any authenticated user |
-| Lines, Shifts, Parameters create/update | `SUPER_ADMIN`, `ADMIN` |
-| Lines, Shifts, Parameters delete | `SUPER_ADMIN` only |
-| Lines, Shifts, Parameters, Report-types reads | any authenticated user |
+| Lines, Shifts master data create/update | `SUPER_ADMIN`, `ADMIN` |
+| Lines, Shifts master data delete | `SUPER_ADMIN` only |
+| Lines, Shifts reads | any authenticated user |
+| Module-driven master data write (module types, modules, processes, parameters) | `SUPER_ADMIN`, `ADMIN` |
+| Module-driven master data read | any authenticated user |
 | Settings create/update/delete | `SUPER_ADMIN` only |
 | Settings reads | `SUPER_ADMIN`, `ADMIN` |
-| Report create/list/get/submit | any authenticated user |
-| Report approve/reject | `SUPER_ADMIN`, `ADMIN` |
-| Report delete | `SUPER_ADMIN` only |
-| Dashboard, Global Search, Attachments, Notifications | any authenticated user |
+| Report engine (start session, save-next, save-submit, list my reports/sessions) | any authenticated user |
+| Dashboard, Unified Search, Attachments, Notifications | any authenticated user |
 | Analytics | `SUPER_ADMIN`, `ADMIN` |
 | Integrations (all) | `SUPER_ADMIN` only |
 | Audit logs (all) | `SUPER_ADMIN`, `ADMIN` |
@@ -135,8 +133,7 @@ framework in `common/pagination`:
 
 - **`PageRequest`** — the single request DTO (base). Optional query params:
   `page`, `size`, `sortBy`, `sortDirection`, `keyword`. Module-specific filter
-  DTOs extend it (`UserFilterRequest`, `ParameterFilterRequest`,
-  `ReportFilterRequest`).
+  DTOs extend it (e.g. `UserFilterRequest`, `ParameterFilterRequest`).
 - **`PageableResolver`** — builds a Spring `Pageable`, clamps `size` to a max of
   `200`, and resolves `sortBy` from a per-module **whitelist** (unknown sort
   fields fall back to the module default).
@@ -177,82 +174,42 @@ The `data` field for paged results is a `PageResponse<T>`:
 | Endpoint | Module filter DTO | Extra filter params |
 |---|---|---|
 | `GET /api/users` | `UserFilterRequest` | `role`, `active` |
-| `GET /api/parameters` | `ParameterFilterRequest` | `reportType`, `inputType`, `active`, `visible` |
-| `GET /api/reports/{module}` (6 report types) | `ReportFilterRequest` | `reportNumber`, `status`, `shiftId`, `lineId`, `dateFrom`, `dateTo`, `approved` |
+| `GET /api/module-parameters` | `ParameterFilterRequest` | `inputType`, `active` |
+| `GET /api/processes/{id}/parameters` | (paged via engine) | processId |
 
 **Sort whitelists** — Users: `id`, `employeeId`, `firstName`, `lastName`,
-`role`, `active`, `createdAt`. Parameters: `id`, `parameterName`,
-`displayOrder`, `inputType`, `active`, `visible`, `createdAt`. Reports:
-`id`, `reportNumber`, `reportDate`, `status`, `createdAt`, `updatedAt`.
+`role`, `active`, `createdAt`. Module-driven master data: per-module whitelists
+(see sections 18 and 19). Engine report/session lists: `id`, `reportNumber`,
+`status`, `createdAt`, `startedAt`, `submittedAt`.
 
-## 5. Report Workflow (shared across the six report modules)
+## 5. Report Engine Workflow
 
-All six report modules share the same endpoint shape, state machine and validation logic; only the path, number prefix, tables and (for three modules) a few extra report header fields differ.
+The report lifecycle is executed entirely by the **configuration-driven report
+engine** (`/api/report-engine`, see section 19). The state machine is
+backend-authoritative; the frontend only renders each step and never computes
+navigation.
 
-**State machine:**
+**Session state machine:**
 
 ```
-        create                 submit                 approve
-  (none) ─────► DRAFT ─────────────► SUBMITTED ──────────────► APPROVED
-                     ▲                   │
-                     │                   │ reject
-                     │                   ▼
-                     │               REJECTED  (terminal in V1)
-                     └──── delete (physical) ──► removed
+Start → IN_PROGRESS ──(save-next per process, advance by displayOrder)──► … ──►
+            └── save-submit (final process) ──► COMPLETED  →  report (SUBMITTED)
 ```
 
-> ⚠️ **No update endpoint exists.** There is **no** `PUT`/`PATCH` for any report
-> module: existing drafts cannot be edited or resumed, and a `REJECTED` report
-> has no transition back to `SUBMITTED` (no edit/resubmit workflow). A report is
-> created in one request (stored as `DRAFT`) and thereafter only submitted,
-> approved, rejected, or deleted (DRAFT only, SUPER_ADMIN).
+- **Start:** freezes the module's latest ACTIVE template version on a new
+  `ReportSession`; captures the shift/line passed at start (shift auto-detected
+  from the current time when omitted) and returns the first process step.
+- **Save-next:** records the current process (grouped under a `RecordedProcess`
+  with a process-order snapshot) and advances to the next process by
+  `displayOrder`. Mandatory visible fields must be provided, else 400.
+- **Save-submit:** records the final process, completes the session and creates
+  + submits the completed `report` with immutable snapshots of the module,
+  version, shift/line, and each parameter's spec (name/unit/inputType/min/max).
+- **No update endpoint:** a completed report cannot be edited or resumed, and the
+  approval workflow (approve/reject) is not yet implemented (forward-compatible
+  `approvedAt`/`approvedBy` columns exist).
 
-- **Create:** the report is stored as `DRAFT`. For every entry, `ValidationService.validate` computes the `inspectionResult` **once at creation time**: if the parameter's `inputType == NUMBER`, the observed value is parsed as `BigDecimal` and compared with the parameter's `minValue`/`maxValue` (`FAIL` below min or above max, `FAIL` on non-numeric, `PASS` in range); blank values and non-NUMBER inputs yield `NOT_APPLICABLE`.
-- **Report number:** generated as `{PREFIX}-{yyyyMMdd}-%05d` (e.g. `PMR-20260802-00001`) where the sequence is `reportRepository.count()+1` for the module (no real DB sequence — race-prone and numbers shift after deletes).
-- **Shift auto-detection:** when `shiftId` is omitted the service picks the active shift whose window covers the current server time (overnight wraps supported); if none covers, the first active shift is used; no active shifts -> 404 on `GET /api/shifts/current`.
-- **Submit:** only `DRAFT -> SUBMITTED` (else 400). No `submittedBy`/`submittedAt` is recorded (columns do not exist).
-- **Approve:** only `SUBMITTED -> APPROVED` (else 400). Stamps `approvedBy`/`approvedAt`. Requires `SUPER_ADMIN` or `ADMIN`.
-- **Reject:** only `SUBMITTED -> REJECTED` (else 400). The rejection reason is stored in the shared `remarks` column (no dedicated `rejectionReason` field). Requires `SUPER_ADMIN` or `ADMIN`.
-- **Delete:** only while `DRAFT` (else 400). **Physical** delete — entries first, then the report row. Requires `SUPER_ADMIN`.
-- **Notifications:** report flows notify the report creator in-app. `create` sends `REPORT_CREATED`, `submit` sends `REPORT_SUBMITTED`, and the approval step sends `REPORT_APPROVED`/`REPORT_REJECTED` (recipient = report `createdBy`). No report flow writes audit rows; the only DB audit trail is JPA `created_at`/`updated_at`.
-
-**Endpoints per module** (identical contract; `{module}` is one of the six path segments in section 1):
-
-| # | Method | URL | Purpose | Roles |
-|---|---|---|---|---|
-| 1 | `POST` | `/api/reports/{module}` | Create report (DRAFT) | any authenticated |
-| 2 | `GET` | `/api/reports/{module}` | List all reports (newest first); accepts optional pagination/filter params (`ReportFilterRequest`) → `PageResponse` when supplied, legacy `List` otherwise | any authenticated |
-| 3 | `GET` | `/api/reports/{module}/{id}` | Get report by id | any authenticated |
-| 4 | `POST` | `/api/reports/{module}/{id}/submit` | Submit for approval | any authenticated |
-| 5 | `POST` | `/api/reports/{module}/{id}/approve` | Approve | `SUPER_ADMIN`/`ADMIN` |
-| 6 | `POST` | `/api/reports/{module}/{id}/reject` | Reject | `SUPER_ADMIN`/`ADMIN` |
-| 7 | `DELETE` | `/api/reports/{module}/{id}` | Delete (DRAFT only, physical) | `SUPER_ADMIN` |
-
-**Shared request DTO fields** (per-module DTOs like `CreateProcessMonitoringRequest`):
-
-| Field | Type | Required | Description / Validation |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the report (`@NotNull` 'Report date is required') |
-| `shiftId` | long | No | Shift; omitted -> auto-detect active shift covering now |
-| `lineId` | long | Yes | Line the report belongs to (`@NotNull` 'Line ID is required'; must exist) |
-| `remarks` | String | No | Free text, `@Size(max=1000)` |
-| `entries` | List | Yes | At least one entry (`@Valid @NotEmpty`) |
-
-**Entry DTO** (e.g. `ProcessMonitoringEntryRequest`):
-
-| Field | Type | Required | Description / Validation |
-|---|---|---|---|
-| `parameterId` | long | Yes | Master parameter being measured (`@NotNull`; must exist) |
-| `observedValue` | String | Yes | Raw value (`@NotBlank`, `@Size(max=500)`); validated against min/max when the parameter input type is NUMBER |
-| `remark` | String | No | Per-entry remark, `@Size(max=1000)` |
-
-**Submit/Approve DTOs** (e.g. `SubmitProcessMonitoringRequest`, `ApproveProcessMonitoringRequest` — approve DTO is also used for reject):
-
-| Field | Type | Required | Description / Validation |
-|---|---|---|---|
-| `remarks` | String | No | `@Size(max=1000)`; on approve/reject it overwrites the report `remarks` |
-
-**Shared response DTO** (per-module, e.g. `ProcessMonitoringResponse`): `id`, `reportNumber`, `reportDate`, `shift` (shift name), `line` (line name), `createdBy` (full name), `approvedBy` (full name, nullable), `status`, `remarks`, `approvedAt`, `createdAt`, `entries: List<EntryResponse>`. Each entry: `id`, `parameterId`, `parameterName`, `minValue`, `maxValue`, `observedValue`, `unit`, `inspectionResult` (`PASS`/`FAIL`/`NOT_APPLICABLE`), `remark`.
+> See `API_DOCUMENTATION.md` section 19 for the full endpoint contract.
 
 ## 6. Authentication
 
@@ -1880,582 +1837,7 @@ Read: shifts. Write: shifts (UPDATE active=false). No physical delete.
 
 ---
 
-## 10. Master Data — Parameters
-
-Parameters are the measurable quality attributes per report type and form the **report template** a Super Admin configures for each predefined report type. `minValue`/`maxValue` (when `inputType=NUMBER`) drive the PASS/FAIL computation done by `ValidationService` at report-creation time. `visible` controls whether the parameter is shown on the report entry form; `defaultValue` is the value pre-filled when rendered. Deletes are **soft** (`active=false`).
-
-### `GET /api/parameters` — Get all parameters
-
-**Purpose** — Fetches all inspection parameters configured in the system. Supports optional pagination and filtering via the shared framework (`ParameterFilterRequest`: `page`, `size`, `sortBy`, `sortDirection`, `keyword`, `reportType`, `inputType`, `active`, `visible`); when any such param is present the `data` field is a `PageResponse<ParameterResponse>`, otherwise the legacy `ParameterResponse[]` list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/parameters`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters** (all optional)
-
-| Param | In | Type | Description |
-|---|---|---|---|
-| `page` | query | int | Zero-based page number (default 0) |
-| `size` | query | int | Page size (default 20, max 200) |
-| `sortBy` | query | string | Sort field: `id`, `parameterName`, `displayOrder`, `inputType`, `active`, `visible`, `createdAt` |
-| `sortDirection` | query | string | `ASC` or `DESC` (default `DESC`) |
-| `keyword` | query | string | Free-text match on parameterName / unit / testMethod |
-| `reportType` | query | string | Filter by report type enum |
-| `inputType` | query | string | Filter by input type enum (`NUMBER`/`TEXT`/`BOOLEAN`/`DROPDOWN`) |
-| `active` | query | boolean | Filter by active status |
-| `visible` | query | boolean | Filter by visible status |
-
-**Example Response** (200 Parameters fetched successfully — legacy list)
-
-```json
-{
-  "success": true,
-  "message": "Parameters fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportType": "PROCESS_MONITORING",
-      "parameterName": "Temperature",
-      "minValue": 0.0,
-      "maxValue": 100.0,
-      "unit": "C",
-      "testMethod": "Thermometer",
-      "frequency": "HOURLY",
-      "inputType": "NUMBER",
-      "mandatory": true,
-      "visible": true,
-      "defaultValue": "25.0",
-      "displayOrder": 1,
-      "active": true
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ParameterResponse`, `ParameterFilterRequest`, `PageResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. No search criteria -> parameterRepository.findAll() -> List<ParameterResponse>. Returns ALL parameters including inactive; no ordering. Message 'Parameters fetched successfully.'
-3. With search criteria -> SpecificationBuilder (keyword on parameterName/unit/testMethod, equality on reportType/inputType/active/visible) + PageableResolver (default sort displayOrder) -> PageResponse<ParameterResponse>.
-
-**Database Impact**
-
-Read: parameter_master. No writes.
-
----
-
-### `POST /api/parameters` — Create a new inspection parameter
-
-**Purpose** — Creates a new inspection parameter for a report type template and returns the created parameter.
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/parameters`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportType` | String | Yes | Report type that owns this parameter Enum: `PROCESS_MONITORING`, `PDI`, `DAILY_STARTUP`, `CHEMICAL_CONSUMPTION`, `FIRST_PIECE_INSPECTION`, `DAILY_INSPECTION`. |
-| `parameterName` | String | Yes | Name of the parameter |
-| `minValue` | BigDecimal | No | Minimum acceptable value |
-| `maxValue` | BigDecimal | No | Maximum acceptable value |
-| `unit` | String | No | Unit of measurement |
-| `testMethod` | String | No | Method used for testing |
-| `frequency` | String | Yes | Inspection frequency Enum: `HOURLY`, `EVERY_2_HOURS`, `EVERY_4_HOURS`, `EVERY_SHIFT`, `DAILY`, `WEEKLY`, `MONTHLY`, `PER_BATCH`. |
-| `inputType` | String | Yes | Type of input expected Enum: `NUMBER`, `TEXT`, `BOOLEAN`, `DROPDOWN`. |
-| `mandatory` | boolean | No | Whether the parameter is mandatory |
-| `visible` | boolean | No | Whether the parameter is visible in the report entry form (default true) |
-| `defaultValue` | String | No | Default value pre-filled when the parameter is rendered |
-| `displayOrder` | int | Yes | Display order for sorting |
-
-**Validation rules** — reportType: @NotNull enum (PROCESS_MONITORING/PDI/DAILY_STARTUP/CHEMICAL_CONSUMPTION/FIRST_PIECE_INSPECTION/DAILY_INSPECTION); parameterName: @NotBlank + unique per report type; minValue/maxValue: BigDecimal optional; unit/testMethod: optional; frequency: @NotNull enum (HOURLY/EVERY_2_HOURS/EVERY_4_HOURS/EVERY_SHIFT/DAILY/WEEKLY/MONTHLY/PER_BATCH); inputType: @NotNull enum (NUMBER/TEXT/BOOLEAN/DROPDOWN); mandatory: Boolean optional (default true); visible: Boolean optional (default true); defaultValue: String optional; displayOrder: @NotNull + @Min(1).
-
-**Example Request**
-
-```json
-{
-  "reportType": "CHEMICAL_CONSUMPTION",
-  "parameterName": "Bath Temperature",
-  "minValue": 20.0,
-  "maxValue": 40.0,
-  "unit": "°C",
-  "testMethod": "Thermometer",
-  "frequency": "EVERY_SHIFT",
-  "inputType": "NUMBER",
-  "mandatory": true,
-  "visible": true,
-  "defaultValue": "25.0",
-  "displayOrder": 1
-}
-```
-
-**Example Response** (201 Inspection parameter created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Parameter created successfully.",
-  "data": {
-    "id": 1,
-    "reportType": "PROCESS_MONITORING",
-    "parameterName": "Temperature",
-    "minValue": 0.0,
-    "maxValue": 100.0,
-    "unit": "C",
-    "testMethod": "Thermometer",
-    "frequency": "HOURLY",
-    "inputType": "NUMBER",
-    "mandatory": true,
-    "visible": true,
-    "defaultValue": "25.0",
-    "displayOrder": 1,
-    "active": true
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 409 | Conflict - data constraint violation |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateParameterRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. existsByReportTypeAndParameterNameIgnoreCase -> 400 'Parameter already exists for this report type.'.
-3. Saves with active=true, mandatory default true, visible default true.
-4. No min<=max check here (ValidationService applies bounds at report-entry time).
-5. 201 Created + Location: /api/parameters/{id}.
-
-**Database Impact**
-
-Read: parameter_master (duplicate check). Write: parameter_master (INSERT). Duplicate (service) -> 400.
-
----
-
-### `GET /api/parameters/report-type/{reportType}` — Get parameters by report type (the configured template)
-
-**Purpose** — Fetches all inspection parameters configured for the given report type template.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/parameters/report-type/{reportType}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `reportType` | path | String (PROCESS_MONITORING,PDI,DAILY_STARTUP,CHEMICAL_CONSUMPTION,FIRST_PIECE_INSPECTION,DAILY_INSPECTION) | Yes | Report type (template) to filter parameters by |
-
-**Example Response** (200 Parameters fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Parameters fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportType": "PROCESS_MONITORING",
-      "parameterName": "Temperature",
-      "minValue": 0.0,
-      "maxValue": 100.0,
-      "unit": "C",
-      "testMethod": "Thermometer",
-      "frequency": "HOURLY",
-      "inputType": "NUMBER",
-      "mandatory": true,
-      "visible": true,
-      "defaultValue": "25.0",
-      "displayOrder": 1,
-      "active": true
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - invalid report type value |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. @PathVariable ReportType reportType (invalid enum value -> 400 type-mismatch).
-3. findByReportTypeOrderByDisplayOrderAsc -> List<ParameterResponse>. Message 'Parameters fetched successfully.'
-
-**Database Impact**
-
-Read: parameter_master WHERE report_type ORDER BY display_order (uses idx). No writes.
-
----
-
-### `GET /api/parameters/{id}` — Get parameter by ID
-
-**Purpose** — Fetches a single inspection parameter by its unique ID.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/parameters/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the inspection parameter |
-
-**Example Response** (200 Parameter fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Parameter fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportType": "PROCESS_MONITORING",
-    "parameterName": "Temperature",
-    "minValue": 0.0,
-    "maxValue": 100.0,
-    "unit": "C",
-    "testMethod": "Thermometer",
-    "frequency": "HOURLY",
-    "inputType": "NUMBER",
-    "mandatory": true,
-    "visible": true,
-    "defaultValue": "25.0",
-    "displayOrder": 1,
-    "active": true
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Parameter not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findById -> 404 'Parameter not found.' Message 'Parameter fetched successfully.'
-
-**Database Impact**
-
-Read: parameter_master (by PK). No writes.
-
----
-
-### `PUT /api/parameters/{id}` — Update an inspection parameter
-
-**Purpose** — Updates an existing inspection parameter with the provided details and returns the updated parameter.
-
-**HTTP Method** — `PUT`
-
-**URL** — `/api/parameters/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the inspection parameter |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `parameterName` | String | Yes | Name of the parameter |
-| `minValue` | BigDecimal | No | Minimum acceptable value |
-| `maxValue` | BigDecimal | No | Maximum acceptable value |
-| `unit` | String | No | Unit of measurement |
-| `testMethod` | String | No | Method used for testing |
-| `frequency` | String | Yes | Inspection frequency Enum: `HOURLY`, `EVERY_2_HOURS`, `EVERY_4_HOURS`, `EVERY_SHIFT`, `DAILY`, `WEEKLY`, `MONTHLY`, `PER_BATCH`. |
-| `inputType` | String | Yes | Type of input expected Enum: `NUMBER`, `TEXT`, `BOOLEAN`, `DROPDOWN`. |
-| `mandatory` | boolean | No | Whether the parameter is mandatory |
-| `visible` | boolean | No | Whether the parameter is visible in the report entry form |
-| `defaultValue` | String | No | Default value pre-filled when the parameter is rendered |
-| `displayOrder` | int | Yes | Display order for sorting |
-| `active` | boolean | No | Whether the parameter is active |
-
-**Validation rules** — parameterName: @NotBlank + unique per report type (excluding self); minValue/maxValue: BigDecimal optional; unit/testMethod: optional; frequency: @NotNull; inputType: @NotNull; mandatory: Boolean optional; visible: Boolean optional; defaultValue: String optional; displayOrder: @NotNull + @Min(1); active: Boolean optional but IGNORED by the service.
-
-**Example Request**
-
-```json
-{
-  "parameterName": "Temperature",
-  "minValue": 20.0,
-  "maxValue": 100.0,
-  "unit": "°C",
-  "testMethod": "Visual Inspection",
-  "frequency": "HOURLY",
-  "inputType": "NUMBER",
-  "mandatory": true,
-  "visible": true,
-  "defaultValue": "25.0",
-  "displayOrder": 1,
-  "active": true
-}
-```
-
-**Example Response** (200 Parameter updated successfully)
-
-```json
-{
-  "success": true,
-  "message": "Parameter updated successfully.",
-  "data": {
-    "id": 1,
-    "reportType": "PROCESS_MONITORING",
-    "parameterName": "Temperature",
-    "minValue": 0.0,
-    "maxValue": 100.0,
-    "unit": "C",
-    "testMethod": "Thermometer",
-    "frequency": "HOURLY",
-    "inputType": "NUMBER",
-    "mandatory": true,
-    "visible": true,
-    "defaultValue": "25.0",
-    "displayOrder": 1,
-    "active": true
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Parameter not found |
-| 409 | Conflict - data constraint violation |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `UpdateParameterRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. findById ->
-404.
-3. Sets parameterName (trimmed), min/max, unit, inputType, displayOrder, testMethod, frequency; mandatory and visible applied only if non-null; defaultValue always applied.
-4. NOTE: DTO 'active' field is never applied (dead field) — a soft-deleted parameter cannot be re-activated via this endpoint; reportType is immutable.
-5. Saves. Message 'Parameter updated successfully.'
-
-**Database Impact**
-
-Read: parameter_master. Write: parameter_master (UPDATE). 404/400 handling.
-
----
-
-### `DELETE /api/parameters/{id}` — Delete a parameter (Super Admin only)
-
-**Purpose** — Soft-deletes an inspection parameter by deactivating it. Only SUPER_ADMIN can perform this action.
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/parameters/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the inspection parameter |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Parameter not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. findById ->
-404.
-3. SOFT delete: active=false (row kept).
-4. Entry tables FK to parameter_master so deactivation never blocks.
-5. 204 No Content.
-
-**Database Impact**
-
-Read: parameter_master. Write: parameter_master (UPDATE active=false). No physical delete.
-
----
-
-## 11. Report Types
-
-A fixed, read-only catalog of the six report types served from the `ReportType` enum — no database access.
-
-### `GET /api/report-types` — List all predefined report types (read-only catalog)
-
-**Purpose** — Fetches the fixed, predefined list of report types that can be created in the system.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/report-types`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Report types fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report types fetched successfully.",
-  "data": [
-    {
-      "code": "PROCESS_MONITORING",
-      "name": "Process Monitoring"
-    },
-    {
-      "code": "CHEMICAL_CONSUMPTION",
-      "name": "Chemical Consumption"
-    },
-    {
-      "code": "DAILY_STARTUP",
-      "name": "Daily Startup Checklist"
-    },
-    {
-      "code": "DAILY_INSPECTION",
-      "name": "Daily Inspection"
-    },
-    {
-      "code": "FIRST_PIECE_INSPECTION",
-      "name": "First Piece Inspection"
-    },
-    {
-      "code": "PDI",
-      "name": "Pre Delivery Inspection"
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Pure in-memory catalog — the controller builds 6 fixed {code,name} pairs from the ReportType enum (PROCESS_MONITORING, CHEMICAL_CONSUMPTION, DAILY_STARTUP, DAILY_INSPECTION, FIRST_PIECE_INSPECTION, PDI). No service/repository/DB access. Message 'Report types fetched successfully.'
-
-**Database Impact**
-
-None (static enum catalog).
-
----
-
-## 12. Settings
+## 10. Settings
 
 Application configuration stored in the `system_settings` table, grouped by `SettingCategory`. Create/update/delete are `SUPER_ADMIN`-only; reads allow `SUPER_ADMIN`/`ADMIN`. NOTE: setting values are returned verbatim — there is no secret masking in this module. `DELETE` is a hard delete (unlike master data).
 
@@ -3046,3742 +2428,13 @@ Read: system_settings. Write: system_settings (DELETE row - physical).
 
 ---
 
-## 13. Reports — Process Monitoring
-
-Path base `/api/reports/process-monitoring`; number prefix `PMR`; tables `process_monitoring_reports` / `process_monitoring_entries`. Contract follows section 5 exactly.
-
-### `POST /api/reports/process-monitoring` — Create process monitoring report
-
-**Purpose** — Creates a new process monitoring report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/process-monitoring`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the monitoring report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<ProcessMonitoringEntryRequest> | Yes | List of monitoring entries |
-
-**Validation rules** — reportDate: @NotNull ('Report date is required') LocalDate; shiftId: Long optional (null -> auto-detect active shift covering now); lineId: @NotNull ('Line ID is required'); remarks: @Size(max=1000) optional; entries: @Valid @NotEmpty ('At least one entry is required').
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "remarks": "All processes running normally",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "12.5",
-      "remark": "Within specification"
-    }
-  ]
-}
-```
-
-**Example Response** (201 Process monitoring report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PMR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateProcessMonitoringRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates PMR-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on process_monitoring_reports (for the report number). Write: process_monitoring_reports (INSERT header) + process_monitoring_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/process-monitoring` — Fetch all process monitoring reports
-
-**Purpose** — Returns a list of all process monitoring reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`: `page`, `size`, `sortBy`, `sortDirection`, `keyword`, `reportNumber`, `status`, `shiftId`, `lineId`, `dateFrom`, `dateTo`, `approved`); when any such param is present the `data` field is a `PageResponse<ProcessMonitoringResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/process-monitoring`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Process monitoring reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "PMR-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: process_monitoring_reports (entity graph over shift/line/createdBy/approvedBy) + process_monitoring_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/process-monitoring/{id}` — Fetch process monitoring report by id
-
-**Purpose** — Returns a single process monitoring report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/process-monitoring/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the process monitoring report |
-
-**Example Response** (200 Process monitoring report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PMR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | Process monitoring report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'Process monitoring report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: process_monitoring_reports (by PK) + process_monitoring_entries (by report). No writes.
-
----
-
-### `POST /api/reports/process-monitoring/{id}/submit` — Submit process monitoring report for approval
-
-**Purpose** — Submits a DRAFT process monitoring report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/process-monitoring/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the process monitoring report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Example Request**
-
-```json
-{
-  "remarks": "Report is ready for review"
-}
-```
-
-**Example Response** (200 Process monitoring report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PMR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Process monitoring report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitReportRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: process_monitoring_reports (status check) + process_monitoring_entries. Write: process_monitoring_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/process-monitoring/{id}/approve` — Approve process monitoring report
-
-**Purpose** — Approves a SUBMITTED process monitoring report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/process-monitoring/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the process monitoring report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - all checks passed"
-}
-```
-
-**Example Response** (200 Process monitoring report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PMR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Process monitoring report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveReportRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: process_monitoring_reports. Write: process_monitoring_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/process-monitoring/{id}/reject` — Reject process monitoring report
-
-**Purpose** — Rejects a SUBMITTED process monitoring report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/process-monitoring/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the process monitoring report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - corrective action required"
-}
-```
-
-**Example Response** (200 Process monitoring report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PMR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Process monitoring report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveReportRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: process_monitoring_reports. Write: process_monitoring_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/process-monitoring/{id}` — Delete draft process monitoring report
-
-**Purpose** — Deletes a DRAFT process monitoring report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/process-monitoring/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the process monitoring report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Process monitoring report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: process_monitoring_entries (DELETE entries by report_id) then process_monitoring_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 14. Reports — Chemical Consumption
-
-Path base `/api/reports/chemical-consumption`; number prefix `CCR`; tables `chemical_consumption_reports` / `chemical_consumption_entries`. Contract follows section 5 exactly.
-
-### `POST /api/reports/chemical-consumption` — Create chemical consumption report
-
-**Purpose** — Creates a new chemical consumption report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/chemical-consumption`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<ChemicalConsumptionEntryRequest> | Yes | List of consumption entries |
-
-**Validation rules** — Same shape as CreateProcessMonitoringRequest (reportDate @NotNull, shiftId optional auto-detect, lineId @NotNull, remarks @Size(max=1000), entries @Valid @NotEmpty).
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "remarks": "All chemicals consumed within limit",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "25.5",
-      "remark": "Within specification"
-    }
-  ]
-}
-```
-
-**Example Response** (201 Chemical consumption report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "CCR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateChemicalConsumptionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates CCR-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on chemical_consumption_reports (for the report number). Write: chemical_consumption_reports (INSERT header) + chemical_consumption_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/chemical-consumption` — Fetch all chemical consumption reports
-
-**Purpose** — Returns a list of all chemical consumption reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`); when any such param is present the `data` field is a `PageResponse<ChemicalConsumptionResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/chemical-consumption`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Chemical consumption reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "CCR-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: chemical_consumption_reports (entity graph over shift/line/createdBy/approvedBy) + chemical_consumption_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/chemical-consumption/{id}` — Fetch chemical consumption report by id
-
-**Purpose** — Returns a single chemical consumption report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/chemical-consumption/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the chemical consumption report |
-
-**Example Response** (200 Chemical consumption report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "CCR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | Chemical consumption report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'Chemical consumption report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: chemical_consumption_reports (by PK) + chemical_consumption_entries (by report). No writes.
-
----
-
-### `POST /api/reports/chemical-consumption/{id}/submit` — Submit chemical consumption report for approval
-
-**Purpose** — Submits a DRAFT chemical consumption report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/chemical-consumption/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the chemical consumption report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional.
-
-**Example Request**
-
-```json
-{
-  "remarks": "Ready for review"
-}
-```
-
-**Example Response** (200 Chemical consumption report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "CCR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Chemical consumption report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitChemicalConsumptionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: chemical_consumption_reports (status check) + chemical_consumption_entries. Write: chemical_consumption_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/chemical-consumption/{id}/approve` — Approve chemical consumption report
-
-**Purpose** — Approves a SUBMITTED chemical consumption report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/chemical-consumption/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the chemical consumption report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - all consumption within specification"
-}
-```
-
-**Example Response** (200 Chemical consumption report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "CCR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Chemical consumption report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveChemicalConsumptionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: chemical_consumption_reports. Write: chemical_consumption_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/chemical-consumption/{id}/reject` — Reject chemical consumption report
-
-**Purpose** — Rejects a SUBMITTED chemical consumption report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/chemical-consumption/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the chemical consumption report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - values out of specification"
-}
-```
-
-**Example Response** (200 Chemical consumption report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "CCR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Chemical consumption report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveChemicalConsumptionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: chemical_consumption_reports. Write: chemical_consumption_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/chemical-consumption/{id}` — Delete draft chemical consumption report
-
-**Purpose** — Deletes a DRAFT chemical consumption report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/chemical-consumption/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the chemical consumption report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Chemical consumption report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: chemical_consumption_entries (DELETE entries by report_id) then chemical_consumption_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 15. Reports — Daily Startup
-
-> **Status: implemented (completed).** Built on the frozen report engine
-> (`AbstractReportService`, `BaseReportMapper`, `ReportTypeMetadata`).
-
-Path base `/api/reports/daily-startup`; number prefix `DSR`; tables `daily_startup_reports` / `daily_startup_entries`. Contract follows section 5 exactly.
-
-### `POST /api/reports/daily-startup` — Create daily startup report
-
-**Purpose** — Creates a new daily startup report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-startup`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the startup report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<DailyStartupEntryRequest> | Yes | List of startup check entries |
-
-**Validation rules** — Same shape as CreateProcessMonitoringRequest (reportDate @NotNull, shiftId optional auto-detect, lineId @NotNull, remarks @Size(max=1000), entries @Valid @NotEmpty).
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "remarks": "Startup completed successfully",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "OK",
-      "remark": "Machine ready"
-    }
-  ]
-}
-```
-
-**Example Response** (201 Daily startup report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DSR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateDailyStartupRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates DSR-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on daily_startup_reports (for the report number). Write: daily_startup_reports (INSERT header) + daily_startup_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/daily-startup` — Fetch all daily startup reports
-
-**Purpose** — Returns a list of all daily startup reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`); when any such param is present the `data` field is a `PageResponse<DailyStartupResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/daily-startup`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Daily startup reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "DSR-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: daily_startup_reports (entity graph over shift/line/createdBy/approvedBy) + daily_startup_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/daily-startup/{id}` — Fetch daily startup report by id
-
-**Purpose** — Returns a single daily startup report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/daily-startup/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily startup report |
-
-**Example Response** (200 Daily startup report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DSR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | Daily startup report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'Daily startup report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: daily_startup_reports (by PK) + daily_startup_entries (by report). No writes.
-
----
-
-### `POST /api/reports/daily-startup/{id}/submit` — Submit daily startup report for approval
-
-**Purpose** — Submits a DRAFT daily startup report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-startup/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily startup report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional.
-
-**Example Request**
-
-```json
-{
-  "remarks": "Ready for review"
-}
-```
-
-**Example Response** (200 Daily startup report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DSR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Daily startup report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitDailyStartupRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_startup_reports (status check) + daily_startup_entries. Write: daily_startup_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/daily-startup/{id}/approve` — Approve daily startup report
-
-**Purpose** — Approves a SUBMITTED daily startup report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-startup/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily startup report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - startup checks passed"
-}
-```
-
-**Example Response** (200 Daily startup report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DSR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Daily startup report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveDailyStartupRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_startup_reports. Write: daily_startup_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/daily-startup/{id}/reject` — Reject daily startup report
-
-**Purpose** — Rejects a SUBMITTED daily startup report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-startup/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily startup report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - startup checks failed"
-}
-```
-
-**Example Response** (200 Daily startup report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DSR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Daily startup report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveDailyStartupRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_startup_reports. Write: daily_startup_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/daily-startup/{id}` — Delete draft daily startup report
-
-**Purpose** — Deletes a DRAFT daily startup report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/daily-startup/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily startup report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Daily startup report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: daily_startup_entries (DELETE entries by report_id) then daily_startup_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 16. Reports — Daily Inspection
-
-Path base `/api/reports/daily-inspection`; number prefix `DIR`; tables `daily_inspection_reports` / `daily_inspection_entries`. Contract follows section 5 exactly. Extra header fields: `inspectorName` (max 200), `correctiveAction` (max 1000) — both optional.
-
-### `POST /api/reports/daily-inspection` — Create daily inspection report
-
-**Purpose** — Creates a new daily inspection report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the inspection report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `inspectorName` | String | No | Name of the inspector |
-| `correctiveAction` | String | No | Corrective action taken |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<DailyInspectionEntryRequest> | Yes | List of inspection entries |
-
-**Validation rules** — reportDate: @NotNull LocalDate; shiftId: optional (auto-detect); lineId: @NotNull; remarks: @Size(max=1000); inspectorName: @Size(max=200) optional; correctiveAction: @Size(max=1000) optional; entries: @Valid @NotEmpty.
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "inspectorName": "Jane Smith",
-  "correctiveAction": "Re-adjusted the machine",
-  "remarks": "All checks completed",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "12.5",
-      "remark": "Within specification"
-    }
-  ]
-}
-```
-
-**Example Response** (201 Daily inspection report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DIR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "inspectorName": "John Doe",
-    "correctiveAction": "None"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateDailyInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates DIR-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header. The DailyInspection report also records optional inspectorName and correctiveAction fields at creation.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on daily_inspection_reports (for the report number). Write: daily_inspection_reports (INSERT header) + daily_inspection_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/daily-inspection` — Fetch all daily inspection reports
-
-**Purpose** — Returns a list of all daily inspection reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`); when any such param is present the `data` field is a `PageResponse<DailyInspectionResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/daily-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Daily inspection reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "DIR-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ],
-      "inspectorName": "John Doe",
-      "correctiveAction": "None"
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: daily_inspection_reports (entity graph over shift/line/createdBy/approvedBy) + daily_inspection_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/daily-inspection/{id}` — Fetch daily inspection report by id
-
-**Purpose** — Returns a single daily inspection report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/daily-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily inspection report |
-
-**Example Response** (200 Daily inspection report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DIR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "inspectorName": "John Doe",
-    "correctiveAction": "None"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | Daily inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'Daily inspection report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: daily_inspection_reports (by PK) + daily_inspection_entries (by report). No writes.
-
----
-
-### `POST /api/reports/daily-inspection/{id}/submit` — Submit daily inspection report for approval
-
-**Purpose** — Submits a DRAFT daily inspection report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-inspection/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional.
-
-**Example Request**
-
-```json
-{
-  "remarks": "Ready for review"
-}
-```
-
-**Example Response** (200 Daily inspection report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DIR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "inspectorName": "John Doe",
-    "correctiveAction": "None"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Daily inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitDailyInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_inspection_reports (status check) + daily_inspection_entries. Write: daily_inspection_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/daily-inspection/{id}/approve` — Approve daily inspection report
-
-**Purpose** — Approves a SUBMITTED daily inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-inspection/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - all checks passed"
-}
-```
-
-**Example Response** (200 Daily inspection report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DIR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "inspectorName": "John Doe",
-    "correctiveAction": "None"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Daily inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveDailyInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_inspection_reports. Write: daily_inspection_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/daily-inspection/{id}/reject` — Reject daily inspection report
-
-**Purpose** — Rejects a SUBMITTED daily inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/daily-inspection/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - measurements out of specification"
-}
-```
-
-**Example Response** (200 Daily inspection report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "DIR-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "inspectorName": "John Doe",
-    "correctiveAction": "None"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Daily inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveDailyInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: daily_inspection_reports. Write: daily_inspection_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/daily-inspection/{id}` — Delete draft daily inspection report
-
-**Purpose** — Deletes a DRAFT daily inspection report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/daily-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the daily inspection report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Daily inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: daily_inspection_entries (DELETE entries by report_id) then daily_inspection_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 17. Reports — First Piece Inspection
-
-Path base `/api/reports/first-piece-inspection`; number prefix `FPI`; tables `first_piece_inspection_reports` / `first_piece_inspection_entries`. Contract follows section 5 exactly. Extra header fields: `productCastingNumber`, `operatorName`, `inspectorName` (each max 200, optional).
-
-### `POST /api/reports/first-piece-inspection` — Create first piece inspection report
-
-**Purpose** — Creates a new first piece inspection report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/first-piece-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the inspection report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `productCastingNumber` | String | No | Product casting number |
-| `operatorName` | String | No | Name of the operator |
-| `inspectorName` | String | No | Name of the inspector |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<FirstPieceInspectionEntryRequest> | Yes | List of inspection entries |
-
-**Validation rules** — reportDate: @NotNull LocalDate; shiftId: optional (auto-detect); lineId: @NotNull; remarks: @Size(max=1000); productCastingNumber: @Size(max=200) optional; operatorName: @Size(max=200) optional; inspectorName: @Size(max=200) optional; entries: @Valid @NotEmpty.
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "productCastingNumber": "CAST-001",
-  "operatorName": "John Doe",
-  "inspectorName": "Jane Smith",
-  "remarks": "All measurements within tolerance",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "12.5",
-      "remark": "Within tolerance"
-    }
-  ]
-}
-```
-
-**Example Response** (201 First piece inspection report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "FPI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productCastingNumber": "CAST-001",
-    "operatorName": "Jane Smith",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreateFirstPieceInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates FPI-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header. The First Piece Inspection report also records optional productCastingNumber, operatorName and inspectorName fields at creation.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on first_piece_inspection_reports (for the report number). Write: first_piece_inspection_reports (INSERT header) + first_piece_inspection_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/first-piece-inspection` — Fetch all first piece inspection reports
-
-**Purpose** — Returns a list of all first piece inspection reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`); when any such param is present the `data` field is a `PageResponse<FirstPieceInspectionResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/first-piece-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 First piece inspection reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "FPI-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ],
-      "productCastingNumber": "CAST-001",
-      "operatorName": "Jane Smith",
-      "inspectorName": "John Doe"
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: first_piece_inspection_reports (entity graph over shift/line/createdBy/approvedBy) + first_piece_inspection_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/first-piece-inspection/{id}` — Fetch first piece inspection report by id
-
-**Purpose** — Returns a single first piece inspection report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/first-piece-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the first piece inspection report |
-
-**Example Response** (200 First piece inspection report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "FPI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productCastingNumber": "CAST-001",
-    "operatorName": "Jane Smith",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | First piece inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'First piece inspection report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: first_piece_inspection_reports (by PK) + first_piece_inspection_entries (by report). No writes.
-
----
-
-### `POST /api/reports/first-piece-inspection/{id}/submit` — Submit first piece inspection report for approval
-
-**Purpose** — Submits a DRAFT first piece inspection report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/first-piece-inspection/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the first piece inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional.
-
-**Example Request**
-
-```json
-{
-  "remarks": "Report is ready for review"
-}
-```
-
-**Example Response** (200 First piece inspection report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "FPI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productCastingNumber": "CAST-001",
-    "operatorName": "Jane Smith",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | First piece inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitFirstPieceInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: first_piece_inspection_reports (status check) + first_piece_inspection_entries. Write: first_piece_inspection_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/first-piece-inspection/{id}/approve` — Approve first piece inspection report
-
-**Purpose** — Approves a SUBMITTED first piece inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/first-piece-inspection/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the first piece inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - all checks passed"
-}
-```
-
-**Example Response** (200 First piece inspection report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "FPI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productCastingNumber": "CAST-001",
-    "operatorName": "Jane Smith",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | First piece inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveFirstPieceInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: first_piece_inspection_reports. Write: first_piece_inspection_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/first-piece-inspection/{id}/reject` — Reject first piece inspection report
-
-**Purpose** — Rejects a SUBMITTED first piece inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/first-piece-inspection/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the first piece inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - corrective action required"
-}
-```
-
-**Example Response** (200 First piece inspection report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "FPI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productCastingNumber": "CAST-001",
-    "operatorName": "Jane Smith",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | First piece inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApproveFirstPieceInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: first_piece_inspection_reports. Write: first_piece_inspection_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/first-piece-inspection/{id}` — Delete draft first piece inspection report
-
-**Purpose** — Deletes a DRAFT first piece inspection report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/first-piece-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the first piece inspection report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | First piece inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: first_piece_inspection_entries (DELETE entries by report_id) then first_piece_inspection_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 18. Reports — Pre-Delivery Inspection
-
-Path base `/api/reports/pre-delivery-inspection`; number prefix `PDI`; tables `pre_delivery_inspection_reports` / `pre_delivery_inspection_entries`. Contract follows section 5 exactly. Extra header fields: `productPartNumber`, `batchNumber`, `inspectorName` (each max 200, optional).
-
-### `POST /api/reports/pre-delivery-inspection` — Create pre-delivery inspection report
-
-**Purpose** — Creates a new pre-delivery inspection report in DRAFT status
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/pre-delivery-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `reportDate` | LocalDate | Yes | Date of the inspection report |
-| `shiftId` | long | No | ID of the shift. Omitted to auto-detect from current time |
-| `lineId` | long | Yes | ID of the production line |
-| `productPartNumber` | String | No | Product part number |
-| `batchNumber` | String | No | Batch number |
-| `inspectorName` | String | No | Name of the inspector |
-| `remarks` | String | No | Additional remarks |
-| `entries` | List<PreDeliveryInspectionEntryRequest> | Yes | List of inspection entries |
-
-**Validation rules** — reportDate: @NotNull LocalDate; shiftId: optional (auto-detect); lineId: @NotNull; remarks: @Size(max=1000); productPartNumber: @Size(max=200) optional; batchNumber: @Size(max=200) optional; inspectorName: @Size(max=200) optional; entries: @Valid @NotEmpty.
-
-**Example Request**
-
-```json
-{
-  "reportDate": "2025-01-15",
-  "shiftId": 1,
-  "lineId": 1,
-  "productPartNumber": "PART-001",
-  "batchNumber": "BATCH-001",
-  "inspectorName": "Jane Smith",
-  "remarks": "All checks completed",
-  "entries": [
-    {
-      "parameterId": 1,
-      "observedValue": "12.5",
-      "remark": "Within tolerance"
-    }
-  ]
-}
-```
-
-**Example Response** (201 Pre-delivery inspection report created successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report created successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PDI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productPartNumber": "PART-001",
-    "batchNumber": "B-100",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `CreatePreDeliveryInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. nextReportNumber() = reportRepository.count()+1, then ReportNumberGenerator generates PDI-{yyyyMMdd}-%05d (e.g. PMR-20260802-00001).
-3. status=DRAFT, createdBy=currentUser, shift = resolveShift(shiftId): if shiftId null, ShiftService picks the active shift covering now (fallback: first active); line resolved by lineId -> 404 'Line not found.' if missing.
-4. For each entry: parameter resolved by parameterId -> 404 'Parameter not found.'; inspectionResult computed once by ValidationService.validate — if inputType==NUMBER the BigDecimal value is compared against min/max (below min or above max -> FAIL, non-numeric -> FAIL), blank value or non-NUMBER input -> NOT_APPLICABLE.
-5. Saves the report header then all entries; returns 201 Created + Location header. The Pre-Delivery Inspection report also records optional productPartNumber, batchNumber and inspectorName fields at creation.
-
-**Database Impact**
-
-Read: users (current user), line_master, shifts (auto-detect when shiftId null), N x parameter_master, COUNT(*) on pre_delivery_inspection_reports (for the report number). Write: pre_delivery_inspection_reports (INSERT header) + pre_delivery_inspection_entries (INSERT one row per entry incl. computed inspectionResult). No audit/notification write.
-
----
-
-### `GET /api/reports/pre-delivery-inspection` — Fetch all pre-delivery inspection reports
-
-**Purpose** — Returns a list of all pre-delivery inspection reports. Supports the shared pagination/filtering contract (`ReportFilterRequest`); when any such param is present the `data` field is a `PageResponse<PreDeliveryInspectionResponse>`, otherwise the legacy list.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/pre-delivery-inspection`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Pre-delivery inspection reports fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Reports fetched successfully.",
-  "data": [
-    {
-      "id": 1,
-      "reportNumber": "PDI-20260802-00001",
-      "reportDate": "2026-08-02",
-      "shift": "Morning",
-      "line": "Line 1",
-      "createdBy": "John Doe",
-      "approvedBy": null,
-      "status": "DRAFT",
-      "remarks": null,
-      "approvedAt": null,
-      "createdAt": "2026-08-02T08:00:00",
-      "entries": [
-        {
-          "id": 1,
-          "parameterId": 1,
-          "parameterName": "Temperature",
-          "minValue": 0.0,
-          "maxValue": 100.0,
-          "observedValue": "25.5",
-          "unit": "C",
-          "inspectionResult": "PASS",
-          "remark": null
-        }
-      ],
-      "productPartNumber": "PART-001",
-      "batchNumber": "B-100",
-      "inspectorName": "John Doe"
-    }
-  ]
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findAllWithDetails (@EntityGraph on shift/line/createdBy/approvedBy, ORDER BY id DESC) plus entries fetched in one pass by report ids.
-3. Returns List<Response> ordered newest first. No filter parameters.
-
-**Database Impact**
-
-Read: pre_delivery_inspection_reports (entity graph over shift/line/createdBy/approvedBy) + pre_delivery_inspection_entries (IN report ids). No writes.
-
----
-
-### `GET /api/reports/pre-delivery-inspection/{id}` — Fetch pre-delivery inspection report by id
-
-**Purpose** — Returns a single pre-delivery inspection report by its unique identifier
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/pre-delivery-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the pre-delivery inspection report |
-
-**Example Response** (200 Pre-delivery inspection report fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report fetched successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PDI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productPartNumber": "PART-001",
-    "batchNumber": "B-100",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 404 | Pre-delivery inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. findByIdWithDetails -> 404 'Pre-delivery inspection report not found.' if missing; entries fetched via findByReport (@EntityGraph parameter).
-3. Returns the report with all entries and their stored inspectionResult.
-
-**Database Impact**
-
-Read: pre_delivery_inspection_reports (by PK) + pre_delivery_inspection_entries (by report). No writes.
-
----
-
-### `POST /api/reports/pre-delivery-inspection/{id}/submit` — Submit pre-delivery inspection report for approval
-
-**Purpose** — Submits a DRAFT pre-delivery inspection report for approval
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/pre-delivery-inspection/{id}/submit`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the pre-delivery inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Submission remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional.
-
-**Example Request**
-
-```json
-{
-  "remarks": "Report is ready for review"
-}
-```
-
-**Example Response** (200 Pre-delivery inspection report submitted successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report submitted successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PDI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "DRAFT",
-    "remarks": null,
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productPartNumber": "PART-001",
-    "batchNumber": "B-100",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 404 | Pre-delivery inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `SubmitPreDeliveryInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be submitted.'.
-3. Sets status=SUBMITTED; if the optional remarks is provided it overwrites the report remarks.
-4. NO submittedBy/submittedAt is recorded (columns do not exist).
-5. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: pre_delivery_inspection_reports (status check) + pre_delivery_inspection_entries. Write: pre_delivery_inspection_reports (UPDATE status=SUBMITTED, remarks, updated_at). No submitted stamp. No audit write.
-
----
-
-### `POST /api/reports/pre-delivery-inspection/{id}/approve` — Approve pre-delivery inspection report
-
-**Purpose** — Approves a SUBMITTED pre-delivery inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/pre-delivery-inspection/{id}/approve`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the pre-delivery inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Approved - all checks passed"
-}
-```
-
-**Example Response** (200 Pre-delivery inspection report approved successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report approved successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PDI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": "Admin User",
-    "status": "APPROVED",
-    "remarks": "Approved",
-    "approvedAt": "2026-08-02T10:30:00",
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productPartNumber": "PART-001",
-    "batchNumber": "B-100",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Pre-delivery inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApprovePreDeliveryInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=APPROVED, approvedBy=currentUser, approvedAt=now; optional remarks overwrite the report remarks.
-4. Saves; returns the report + entries.
-5. No notification or audit row is written.
-
-**Database Impact**
-
-Read: pre_delivery_inspection_reports. Write: pre_delivery_inspection_reports (UPDATE status=APPROVED, approved_by, approved_at, remarks, updated_at). No audit write.
-
----
-
-### `POST /api/reports/pre-delivery-inspection/{id}/reject` — Reject pre-delivery inspection report
-
-**Purpose** — Rejects a SUBMITTED pre-delivery inspection report
-
-**HTTP Method** — `POST`
-
-**URL** — `/api/reports/pre-delivery-inspection/{id}/reject`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the pre-delivery inspection report |
-
-**Request Body** (application/json)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `remarks` | String | No | Approval or rejection remarks |
-
-**Validation rules** — remarks: @Size(max=1000) optional (also reused for reject).
-
-**Example Request**
-
-```json
-{
-  "remarks": "Rejected - corrective action required"
-}
-```
-
-**Example Response** (200 Pre-delivery inspection report rejected successfully)
-
-```json
-{
-  "success": true,
-  "message": "Report rejected successfully.",
-  "data": {
-    "id": 1,
-    "reportNumber": "PDI-20260802-00001",
-    "reportDate": "2026-08-02",
-    "shift": "Morning",
-    "line": "Line 1",
-    "createdBy": "John Doe",
-    "approvedBy": null,
-    "status": "REJECTED",
-    "remarks": "Out of tolerance",
-    "approvedAt": null,
-    "createdAt": "2026-08-02T08:00:00",
-    "entries": [
-      {
-        "id": 1,
-        "parameterId": 1,
-        "parameterName": "Temperature",
-        "minValue": 0.0,
-        "maxValue": 100.0,
-        "observedValue": "25.5",
-        "unit": "C",
-        "inspectionResult": "PASS",
-        "remark": null
-      }
-    ],
-    "productPartNumber": "PART-001",
-    "batchNumber": "B-100",
-    "inspectorName": "John Doe"
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - validation error or malformed request body |
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN or ADMIN role |
-| 404 | Pre-delivery inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`, `ApprovePreDeliveryInspectionRequest`
-
-**Business Flow**
-
-1. @PreAuthorize(hasAnyRole('SUPER_ADMIN','ADMIN')).
-2. Guard: status must be SUBMITTED, else 400 'Only submitted reports can be approved or rejected.'.
-3. Sets status=REJECTED; approvedBy/approvedAt are NOT set. The rejection reason is stored in the shared remarks field (overwritten when provided).
-4. Saves; returns the report + entries. No notification or audit row is written.
-
-**Database Impact**
-
-Read: pre_delivery_inspection_reports. Write: pre_delivery_inspection_reports (UPDATE status=REJECTED, remarks, updated_at). approved_by/approved_at not set. No audit write.
-
----
-
-### `DELETE /api/reports/pre-delivery-inspection/{id}` — Delete draft pre-delivery inspection report
-
-**Purpose** — Deletes a DRAFT pre-delivery inspection report by its unique identifier
-
-**HTTP Method** — `DELETE`
-
-**URL** — `/api/reports/pre-delivery-inspection/{id}`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `id` | path | long | Yes | ID of the pre-delivery inspection report |
-
-**Example Response** — HTTP 204 No Content (empty body).
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 401 | Unauthorized - authentication required |
-| 403 | Forbidden - requires SUPER_ADMIN role |
-| 404 | Pre-delivery inspection report not found |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`
-
-**Business Flow**
-
-1. @PreAuthorize(hasRole('SUPER_ADMIN')).
-2. Guard: status must be DRAFT, else 400 'Only draft reports can be deleted.'.
-3. Physical delete: entries deleted by report_id first, then the report row.
-4. Returns 204 No Content.
-
-**Database Impact**
-
-Write: pre_delivery_inspection_entries (DELETE entries by report_id) then pre_delivery_inspection_reports (DELETE header - physical). Only DRAFT allowed, else 400 and no change.
-
----
-
-## 19. Dashboard
-
-Dashboard KPIs are computed with native SQL over a UNION ALL of the six report tables. All endpoints are read-only and any authenticated user may call them. No query parameters are used except `GET /api/reports/dashboard/recent-activity?limit=N`.
+## 11. Dashboard
+
+Dashboard KPIs are read-only and any authenticated user may call them. Since
+Phase 4 the metrics are computed **exclusively over the Generic Report Engine's
+`report` (`completed_report`) table** (no longer the six legacy per-type report
+tables). The response contracts below are unchanged. No query parameters are used
+except `GET /api/reports/dashboard/recent-activity?limit=N`.
 
 ### `GET /api/reports/dashboard/summary` — Get dashboard summary with report counts by status
 
@@ -6828,11 +2481,11 @@ Dashboard KPIs are computed with native SQL over a UNION ALL of the six report t
 
 **Business Flow**
 
-SELECT status, COUNT(*) FROM (union of six report tables) GROUP BY status -> buckets for DRAFT/SUBMITTED/APPROVED/REJECTED plus total. Returns DashboardSummaryResponse {totalReports, draftReports, submittedReports, approvedReports, rejectedReports}.
+SELECT status, COUNT(*) FROM report GROUP BY status -> buckets for SUBMITTED (+ forward-compatible approvals) plus total. Returns DashboardSummaryResponse {totalReports, submittedReports, approvedReports, rejectedReports}.
 
 **Database Impact**
 
-Read: 1 native aggregate SELECT over the 6 report tables. No writes.
+Read: 1 native aggregate SELECT over the engine `report` table. No writes.
 
 ---
 
@@ -6861,11 +2514,11 @@ Read: 1 native aggregate SELECT over the 6 report tables. No writes.
   "message": "Reports by type fetched successfully.",
   "data": [
     {
-      "reportType": "PROCESS_MONITORING",
+      "reportType": "Extrusion",
       "count": 40
     },
     {
-      "reportType": "CHEMICAL_CONSUMPTION",
+      "reportType": "Coating",
       "count": 20
     }
   ]
@@ -6884,7 +2537,7 @@ Read: 1 native aggregate SELECT over the 6 report tables. No writes.
 
 **Business Flow**
 
-SELECT report_type, COUNT(*) GROUP BY report_type -> counts per report type (labels hard-coded). Returns List of {reportType, count}.
+SELECT module_name, COUNT(*) FROM `report` GROUP BY module_name ORDER BY module_name -> counts per module (labels are the Module names). Returns List of {reportType (=module name), count}.
 
 **Database Impact**
 
@@ -7132,8 +2785,8 @@ Read: 1 native SELECT. No writes.
   "data": [
     {
       "id": 12,
-      "reportNumber": "PMR-20260802-00012",
-      "reportType": "PROCESS_MONITORING",
+      "reportNumber": "RPT-20260802-00012",
+      "reportType": "Extrusion",
       "reportDate": "2026-08-02",
       "status": "SUBMITTED",
       "shiftName": "Morning",
@@ -7157,7 +2810,7 @@ Read: 1 native SELECT. No writes.
 
 **Business Flow**
 
-Recent union LEFT JOIN shifts/line_master/users, ORDER BY created_at DESC LIMIT 10; created_by = COALESCE(CONCAT(first_name,' ',last_name), employee_id). Returns List of {id, reportNumber, reportType, reportDate, status, shiftName, lineName, createdBy, createdAt}.
+Recent union over `report` (module_name as reportType) LEFT JOIN shifts/line_master/users, ORDER BY created_at DESC LIMIT 10; created_by = COALESCE(CONCAT(first_name,' ',last_name), employee_id). Returns List of {id, reportNumber, reportType (=module name), reportDate, status, shiftName, lineName, createdBy, createdAt}.
 
 **Database Impact**
 
@@ -7266,7 +2919,7 @@ Read: 1 native aggregate SELECT. No writes.
 
 **Business Flow**
 
-1. Group `status` over the union of the six report tables -> `pendingApprovals` (SUBMITTED), `approvedReports`, `rejectedReports`.
+1. Group `status` over the engine `report` table -> `pendingApprovals` (SUBMITTED), `approvedReports`, `rejectedReports`.
 2. Group `status` over the same union filtered to `approved_at::date = CURRENT_DATE` -> `approvedToday` / `rejectedToday`.
 3. `approvalRate = approved / (approved + rejected) * 100` rounded to 2 decimals (0 when nothing decided).
 4. Reuses the same `STATUS_UNION` table set as `/summary` (no duplicated queries).
@@ -7332,161 +2985,26 @@ Read: 2 native aggregate SELECTs. No writes.
 
 **Business Flow**
 
-1. Builds a UNION of lifecycle events over the six report tables: a `CREATED` event from each row (`created_by`/`created_at`) plus an `APPROVED`/`REJECTED` event (derived from `status`) where `approved_at` is not null.
+1. Builds lifecycle events over the engine `report` table: a `CREATED` event from each row (`created_by`/`created_at`) plus `APPROVED`/`REJECTED` events (derived from `approved_at`).
 2. Left-joins `users` for the actor's display name, orders by event time descending, applies `LIMIT :limit`.
 3. Returns `RecentActivityResponse` items (lightweight for mobile feeds).
 
 **Database Impact**
 
-Read: 1 native SELECT over a UNION of the six report tables + `users` join. No writes.
+Read: 1 native SELECT over the engine `report` table + `users` join. No writes.
 
 ---
 
-## 20. Global Search
+## 12. Global Search
 
-Full-text-ish search across all six report tables using PostgreSQL-specific SQL (ILIKE, CONCAT, casts). Read-only. Two search surfaces:
+Read-only search across report data, users and parameters. The unified search
+runs against the **engine's `report` (`completed_report`) table**, the `users`
+table, and the module architecture's global `parameter` table.
 
-- `GET /api/reports/search` — report-only search (legacy, unchanged).
-- `GET /api/search` — **unified enterprise search** across reports, users, and parameters, built on the shared pagination framework (`PageRequest` / `PageResponse`).
-
-### `GET /api/reports/search` — Global search across all report modules with filtering, pagination and sorting
-
-**Purpose** — Searches across all report modules using the provided filters and returns paginated results. All filter, pagination and sorting criteria are passed as query parameters.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/search`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Example Response** (200 Search completed successfully)
-
-```json
-{
-  "success": true,
-  "message": "Search completed successfully.",
-  "data": {
-    "content": [
-      {
-        "id": 12,
-        "reportNumber": "PMR-20260802-00012",
-        "reportType": "PROCESS_MONITORING",
-        "reportDate": "2026-08-02",
-        "shiftName": "Morning",
-        "lineName": "Line 1",
-        "status": "SUBMITTED",
-        "createdBy": "John Doe",
-        "approvedBy": null,
-        "summary": ""
-      }
-    ],
-    "page": 0,
-    "size": 20,
-    "totalElements": 1,
-    "totalPages": 1,
-    "first": true,
-    "last": true
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - invalid filter, date format or pagination parameter |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Query params bind to GlobalSearchRequest (no @Valid, so DTO validation is NOT enforced).
-3. GlobalSearchQueryBuilder builds a COUNT query then a DATA query over the UNION of the six report tables LEFT JOIN shifts, line_master and users (created/approved).
-4. Filters applied: reportNumber, reportType, status, employeeName, employeeId, shiftId, lineId, dateFrom/dateTo, remarks, approved (true->APPROVED / false->DRAFT,SUBMITTED,REJECTED), keyword (OR ILIKE on report_number/remarks/employee name), createdBy, approvedBy.
-5. Sorting default created_at DESC (sortBy whitelist reportDate|reportNumber|createdAt|updatedAt|status; direction ASC/DESC).
-6. Returns PageResponse<GlobalSearchResultItem>.
-
-**Database Impact**
-
-Read: 2 native SELECTs per request (count + page) over the 6 report tables + shifts, line_master, users. PostgreSQL-specific SQL (::varchar, ILIKE, CONCAT). No writes.
-
----
-
-### `GET /api/reports/search/suggestions` — Get search suggestions for report numbers, employee names, lines, and parameters
-
-**Purpose** — Returns autocomplete suggestions for report numbers, employee names, production lines, and parameter names based on the given search query text.
-
-**HTTP Method** — `GET`
-
-**URL** — `/api/reports/search/suggestions`
-
-**Authorization** — `Authorization: Bearer <accessToken>` (authenticated user; role checks listed below).
-
-**Request Headers**
-
-| Header | Value | Required |
-|---|---|---|
-| `Authorization` | `Bearer <accessToken>` | Yes |
-| `Content-Type` | `application/json` | Yes (when a body is sent) |
-
-**Request Parameters**
-
-| Param | In | Type | Required | Description |
-|---|---|---|---|---|
-| `q` | query | String | Yes | Search query text |
-
-**Example Response** (200 Suggestions fetched successfully)
-
-```json
-{
-  "success": true,
-  "message": "Suggestions fetched successfully.",
-  "data": {
-    "reportNumbers": [
-      "PMR-20260802-00012"
-    ],
-    "employeeNames": [
-      "John Doe"
-    ],
-    "lines": [
-      "Line 1"
-    ]
-  }
-}
-```
-
-**Error Responses** — error bodies use the `ApiError` envelope (section 3).
-
-| Code | Meaning |
-|---|---|
-| 400 | Bad Request - missing or malformed query parameter |
-| 401 | Unauthorized - authentication required |
-| 500 | Internal server error |
-
-**DTOs** — `ApiError`, `ApiResponse`
-
-**Business Flow**
-
-1. @PreAuthorize('isAuthenticated()').
-2. Requires query param q (@RequestParam, required).
-3. Runs four native queries with pattern %q%: report numbers ILIKE from the six tables (LIMIT 10), distinct employee names from users matching name or employee_id (LIMIT 10), line names ILIKE from line_master (LIMIT 10), parameter names ILIKE from parameter_master (LIMIT 10).
-4. Returns SearchSuggestionsResponse {reportNumbers, employeeNames, lines, parameters}.
-
-**Database Impact**
-
-Read: 4 native SELECTs (report tables, users, line_master, parameter_master). No writes.
-
----
+- `GET /api/search` — **unified enterprise search** across reports, users, and
+  parameters, built on the shared pagination framework (`PageRequest` /
+  `PageResponse`). The legacy report-only search path (`/api/reports/search`)
+  and the legacy per-type search stack were removed in Phase 5.
 
 ### `GET /api/search` — Unified search across reports, users and parameters
 
@@ -7510,14 +3028,16 @@ Read: 4 native SELECTs (report tables, users, line_master, parameter_master). No
 | Param | In | Type | Description |
 |---|---|---|---|
 | `type` | query | string | Restrict to one entity type: `REPORT`, `USER`, `PARAMETER` (default: all) |
-| `keyword` | query | string | Free-text match on title / subtitle / actor / report type |
+| `keyword` | query | string | Free-text match on title / subtitle / module name / actor |
 | `reportNumber` | query | string | Partial report number / parameter name / employee ID |
-| `reportType` | query | string | Report type filter |
+| `reportType` | query | string | Module-name filter (matches the report's module, engine reports only) |
 | `status` | query | string | Report status filter |
 | `employeeName` | query | string | Employee name filter (report creator / user full name) |
 | `role` | query | string | User role filter (users only) |
 | `shiftId` | query | long | Shift ID filter (reports only) |
 | `lineId` | query | long | Line ID filter (reports only) |
+| `moduleId` | query | long | Module filter (engine reports only) |
+| `moduleTypeId` | query | long | Module-type filter (engine reports only) |
 | `dateFrom` | query | date | Earliest report date (ISO yyyy-MM-dd) |
 | `dateTo` | query | date | Latest report date (ISO yyyy-MM-dd) |
 | `page` | query | int | Zero-based page number (default 0) |
@@ -7536,9 +3056,9 @@ Read: 4 native SELECTs (report tables, users, line_master, parameter_master). No
       {
         "type": "REPORT",
         "id": 41,
-        "title": "PDI-20260802-00031",
-        "subtitle": "PDI",
-        "reportType": "PDI",
+        "title": "RPT-20260802-00031",
+        "subtitle": "Extrusion",
+        "reportType": "Extrusion",
         "status": "REJECTED",
         "shiftName": "Morning",
         "lineName": "Line-1",
@@ -7570,8 +3090,8 @@ Read: 4 native SELECTs (report tables, users, line_master, parameter_master). No
 **Business Flow**
 
 1. @PreAuthorize('isAuthenticated()').
-2. `UnifiedSearchQueryBuilder` builds a UNION of the six report tables, the `users` table and `parameter_master`, each normalized to a common shape (`type, id, title, subtitle, report_type, status, shift_name, line_name, actor, report_date, created_at, role_name, shift_id, line_id`).
-3. Filters (`keyword`, `reportNumber`, `reportType`, `status`, `employeeName`, `role`, `shiftId`, `lineId`, `dateFrom`, `dateTo`) are applied as optional parameterized conditions; `type` restricts which branches are unioned.
+2. `UnifiedSearchQueryBuilder` builds a union of the **engine `report` table**, the `users` table and the module architecture's global `parameter` table, each normalized to a common shape (`type, id, title, subtitle, report_type, status, shift_name, line_name, actor, report_date, created_at, role_name, shift_id, line_id`).
+3. Filters (`keyword`, `reportNumber`, `reportType`, `status`, `employeeName`, `role`, `shiftId`, `lineId`, `moduleId`, `moduleTypeId`, `dateFrom`, `dateTo`) are applied as optional parameterized conditions; `type` restricts which branches are unioned.
 4. Count query for `totalElements`; data query with `LIMIT :size OFFSET :offset` and a whitelisted `sortBy`.
 5. Returns `PageResponse<UnifiedSearchResultItem>` (lightweight, mobile-friendly).
 
@@ -7581,9 +3101,15 @@ Read: 1-2 native SELECTs (count + data) over the union. No writes.
 
 ---
 
-## 21. Analytics
+## 13. Analytics
 
-Analytics aggregates are read-only native SQL over the six report + six entry tables. Restricted to `SUPER_ADMIN`/`ADMIN`. Optional filters: `dateFrom`, `dateTo`, `shiftId`, `lineId` (per endpoint). No validation that `dateFrom <= dateTo`; a malformed date -> 400.
+Analytics aggregates are read-only. Since Phase 4 they are computed **over the
+engine's `report` (`completed_report`) + `recorded_value` tables** (no longer the
+six legacy report + entry tables). Restricted to `SUPER_ADMIN`/`ADMIN`. Optional
+filters: `dateFrom`, `dateTo`, `shiftId`, `lineId` (per endpoint). Entry-level
+PASS/FAIL is **config-driven**: a numeric `recorded_value.observedValue` is
+compared against the frozen `minimum_value`/`maximum_value` snapshot (FAIL below
+min or above max). No validation that `dateFrom <= dateTo`; a malformed date -> 400.
 
 ### `GET /api/analytics/report-overview` — Get report overview with counts by type, status, shift, and line
 
@@ -7743,7 +3269,7 @@ Counts total, APPROVED, REJECTED, SUBMITTED over the report union; computes appr
 
 **Database Impact**
 
-Read: aggregate SELECTs over the 6 report + 6 entry tables. No writes.
+Read: aggregate SELECTs over the engine `report` + `recorded_value` tables. No writes.
 
 ---
 
@@ -7829,11 +3355,11 @@ Read: aggregate SELECTs over the 6 report + 6 entry tables. No writes.
 
 **Business Flow**
 
-Restricted to chemical_consumption_reports. KPIs: total (filtered) + today's reports (note: dailyCount ignores date filters in code). Trends daily/weekly(DATE_TRUNC week)/monthly; consumptionByLine JOIN line_master. Returns ChemicalConsumptionKPIResponse.
+Restricted to engine reports. KPIs: total (filtered) + today's reports (note: dailyCount ignores date filters in code). Trends daily/weekly (DATE_TRUNC week)/monthly; `consumption` sums numeric bounded recorded values, per line (JOIN line_master). Returns ChemicalConsumptionKPIResponse.
 
 **Database Impact**
 
-Read: aggregate SELECTs over chemical_consumption_reports + line_master. No writes.
+Read: aggregate SELECTs over the engine `report`/`recorded_value` + `line_master`. No writes.
 
 ---
 
@@ -7907,11 +3433,11 @@ Read: aggregate SELECTs over chemical_consumption_reports + line_master. No writ
 
 **Business Flow**
 
-process_monitoring_entries JOIN reports JOIN parameter_master grouped by inspection_result + parameter_name. Computes pass/fail counts, process stability (PASS %), failureFrequency (FAIL rows per parameter), outOfSpecParameters (FAIL counts per parameter), totalReports. Returns ProcessMonitoringKPIResponse.
+Aggregates `recorded_value` (JOIN `report`/`recorded_process`) grouped by pass/fail + parameter_name. Entry status is config-driven (numeric observed value within the frozen min/max snapshot). Computes pass/fail counts, process stability (PASS %), failureFrequency (FAIL per parameter), outOfSpecParameters (FAIL per parameter), totalReports. Returns ProcessMonitoringKPIResponse.
 
 **Database Impact**
 
-Read: process_monitoring_entries + process_monitoring_reports + parameter_master. No writes.
+Read: aggregate SELECTs over the engine `report`/`recorded_process`/`recorded_value`. No writes.
 
 ---
 
@@ -8312,7 +3838,7 @@ Read: 4 aggregate SELECTs over the union. No writes.
 
 ---
 
-## 22. Integrations
+## 14. Integrations
 
 External-system integration configs. `SUPER_ADMIN` only. Secret keys in `configJson` (password, secret, apiKey, token, authToken, accessKey, privateKey, clientSecret, appSecret, etc.) are masked as `****` in every response. Only the `WEBHOOK` connector is implemented; `test` on any other type -> 400. DELETE is physical and can hit an FK conflict (409) when execution history exists.
 
@@ -9017,7 +4543,7 @@ Read: integration_execution_histories. No writes.
 
 ---
 
-## 23. Attachments
+## 15. Attachments
 
 File storage. Any authenticated user. Uploads enforce a 10 MB size cap, MIME-type and extension allow-lists, and SHA-256 content dedup. DELETE is a **soft** delete (`is_active=false`) — the file stays on disk.
 
@@ -9651,11 +5177,15 @@ Read: attachments. Write: attachments (UPDATE is_active=false). File remains on 
 
 ---
 
-## 24. Notifications
+## 16. Notifications
 
 Per-user notifications. Any authenticated user; all data is scoped to the current user (ownership violations surface as 404 to hide existence). Read/delete are physical; mark-as-read updates the row.
 
-**Workflow-triggered**: notifications are emitted by backend business flows and persisted in-app. Report flows (`create` -> `REPORT_CREATED`, `submit` -> `REPORT_SUBMITTED`, approve/reject -> `REPORT_APPROVED`/`REPORT_REJECTED` to the creator) and user/auth flows (user creation -> `USER_CREATED` + `WELCOME`, password change -> `PASSWORD_CHANGED`) write notifications via `NotificationChannel`. There are no external channels (email/SMS/push) yet.
+**Source of notifications**: notifications are written in-app by the `user`
+module workflows only — user creation (`USER_CREATED` + `WELCOME`) and password
+change (`PASSWORD_CHANGED`). The report engine does **not** emit report-flow
+notifications, and the notification backend does not currently write
+`REPORT_*` notifications. There are no external channels (email/SMS/push) yet.
 
 **Enum reference**
 
@@ -10015,7 +5545,7 @@ Read: notifications. Write: notifications (DELETE - physical).
 
 ---
 
-## 25. Audit Logs
+## 17. Audit Logs
 
 Read-only audit service. Restricted to `SUPER_ADMIN`/`ADMIN`. IMPORTANT: no code path writes to `audit_logs` — this table stays empty unless populated externally, so these endpoints currently return empty/zero data.
 
@@ -10244,7 +5774,217 @@ Read: audit_logs (COUNT queries, GROUP BY). No writes.
 
 ---
 
-## 26. Appendix A — DTO Reference
+## 18. Module-Driven Master Data APIs
+
+> Module-driven migration (see `MIGRATION_PLAN.md`). **config-oriented**
+> master-data endpoints for the hierarchy
+> `Module Type → Module → Template Version → Process → Process Parameter →
+> (global) Parameter`. The legacy report-type/parameter endpoints have been
+> **removed** (Phase 5). The report engine APIs are in section 19 and the
+> Dashboard / Global Search / Analytics read the engine. Conventions match the
+> rest of the system: `ApiResponse<T>` wrapper,
+> `PageResponse<T>` for filtered lists, `@PreAuthorize` RBAC (write = Super
+> Admin / Admin, read = any authenticated user), and shared pagination
+> (`page`/`size`/`sortBy`/`sortDirection`/`keyword`) where noted.
+
+### `POST /api/module-types` — Create a module type
+
+Request `CreateModuleTypeRequest`: `name` (required, ≤100), `description` (≤300).
+Returns `ModuleTypeResponse` (`id`, `name`, `description`, `active`).
+
+### `GET /api/module-types` — List module types
+
+Without paging/filter params returns the full `ModuleTypeResponse[]`; with any
+param returns `PageResponse<ModuleTypeResponse>`. Filters: `keyword` (name,
+description), `active`.
+
+### `GET /api/module-types/{id}` — Get a module type
+### `PUT /api/module-types/{id}` — Update a module type
+### `DELETE /api/module-types/{id}` — Deactivate a module type (Super Admin only)
+
+### `POST /api/modules` — Create a module (and its initial template version)
+
+Data: `CreateModuleRequest` — `moduleTypeId` (required), `name` (required, ≤150,
+unique), `prefix` (required, ≤10, unique, uppercased), `description` (≤500),
+`changeNote` (required, used for the initial version). Creates the module in
+`DRAFT` status together with template version **1** (`DRAFT`). Returns:
+`ModuleResponse`.
+
+### `GET /api/modules` — List modules
+
+Full list, or `PageResponse<ModuleResponse>` when paged. Filters: `moduleTypeId`,
+`status` (`DRAFT`/`ACTIVE`/`ARCHIVED`), keyword (name, prefix, description).
+
+`ModuleResponse` carries `moduleType` (summary), `name`, `prefix`, `description`,
+`status`, and `latestActiveVersion` (the newest `ACTIVE` template version — the
+one new reports must use).
+
+### `GET /api/modules/{id}` — Get a module
+### `PUT /api/modules/{id}` — Update a module (name/prefix/description; status unchanged)
+### `PATCH /api/modules/{id}/archive` — Archive a module (Super Admin only)
+
+Sets status `ACTIVE → ARCHIVED` so no new reports can be created against it.
+
+### `GET /api/modules/{id}/versions` — List a module's template versions
+
+Returns `List<TemplateVersionResponse>` newest first. Each: `id`, `moduleId`,
+`versionNumber`, `status` (`DRAFT`/`ACTIVE`/`SUPERSEDED`), `changeNote`.
+
+### `POST /api/modules/{id}/versions` — Create a new template version
+
+Data: `CreateTemplateVersionRequest` (`changeNote`, required). **Snapshots** the
+current latest `ACTIVE` version's processes and process parameters into a new
+`DRAFT` version with `versionNumber = latest + 1` (falls back to 1 when the
+module has no versions). The source ACTIVE version is never modified. Returns the
+new `TemplateVersionResponse`.
+
+### `POST /api/modules/{id}/versions/{versionId}/publish` — Publish a template version
+
+Only a `DRAFT` version can be published. Flips the version to `ACTIVE`,
+marks every other `ACTIVE` version of the module `SUPERSEDED`, and if the module
+is still `DRAFT` marks it `ACTIVE`. Returns the published
+`TemplateVersionResponse`.
+
+### `GET /api/modules/{id}/versions/{versionId}/processes` — List a version's processes
+
+Returns `List<ProcessResponse>` ordered by `displayOrder`. `ProcessResponse`:
+`id`, `templateVersionId`, `name`, `description`, `displayOrder`, `status`.
+
+### `GET /api/modules/{id}/versions/{versionId}/process-parameters` — List a version's process parameters
+
+Returns `List<ProcessParameterResponse>` ordered by `displayOrder` (grouped by
+process). `ProcessParameterResponse`: `id`, `processId`, `parameter` (summary),
+`displayOrder`, `mandatory`, `visible`, `defaultValue`, `unit`, `minimumValue`,
+`maximumValue`, `active`, `inputType` (derived from the bound global parameter).
+
+### `POST /api/processes` — Create a process
+
+Data: `CreateProcessRequest` — `templateVersionId` (required), `name` (required,
+≤150, unique per version), `description` (≤500), `displayOrder` (required ≥1).
+Created `ACTIVE`. Superseded template versions are rejected.
+
+### `GET /api/processes` — List processes
+
+Returns: full list or `PageResponse<ProcessResponse>` when filters present.
+Filters: `templateVersionId`, `status` (`DRAFT`/`ACTIVE`/`ARCHIVED`).
+
+### `GET /api/processes/{id}` — Get a process
+### `PUT /api/processes/{id}` — Update a process (name/description/displayOrder)
+### `PATCH /api/processes/{id}/archive` — Archive a process
+
+Soft lifecycle — marks the process `ARCHIVED`.
+
+### `GET /api/processes/{processId}/parameters` — List a process's parameter bindings
+
+Returns `List<ProcessParameterResponse>` ordered by `displayOrder`.
+
+### `POST /api/processes/{processId}/parameters` — Bind a global parameter to a process
+
+Data: `CreateProcessParameterRequest` — `parameterId` (required), `displayOrder`
+(required ≥1), `mandatory` (default `true`), `visible` (default `true`),
+`defaultValue`, `unit`, `minimumValue`, `maximumValue`. Rejects inactive
+parameters and duplicate bindings.
+
+### `GET /api/processes/{processId}/parameters/{id}` — Get a binding
+### `PUT /api/processes/{processId}/parameters/{id}` — Update a binding
+### `DELETE /api/processes/{processId}/parameters/{id}` — Deactivate a binding (Super Admin only)
+
+### `POST /api/module-parameters` — Create a global parameter
+
+Data: `CreateParameterRequest` — `name` (required, ≤150, unique), `inputType`
+(`NUMBER`/`TEXT`/`BOOLEAN`/`DROPDOWN`, required), `description` (≤500). Created
+`active=true`.
+
+### `GET /api/module-parameters` — List global parameters
+
+Returns: full list or `PageResponse<ParameterResponse>` when filters present.
+Filters: `inputType`, `active`. `ParameterResponse`: `id`, `name`, `inputType`,
+`description`, `active`.
+
+### `GET /api/module-parameters/{id}` — Get a global parameter
+### `PUT /api/module-parameters/{id}` — Update a global parameter
+### `DELETE /api/module-parameters/{id}` — Deactivate a global parameter (Super Admin only)
+
+---
+
+## 19. Configuration-Driven Report Engine APIs
+
+> A generic, **configuration-driven report engine** (`/api/report-engine`) that
+> works exclusively against the module hierarchy. There is **no report-specific
+> Java code** — every process and field is derived from the module config. The
+> legacy ReportType architecture has been **removed** (Phase 5); this engine is
+> the only report API. Workflow (backend-authoritative):
+>
+> `Start → Save processes one-by-one → Save & Submit → Completed Report`.
+>
+> The engine captures **immutable snapshots** on the completed report and
+> recorded values (module name/prefix, template version number, module type,
+> shift/line id + name), and `start` accepts an optional `shiftId`/`lineId`.
+> The Dashboard / Global Search / Analytics read these tables (sections 11–13).
+
+### `POST /api/report-engine/start` — Start a report session
+
+Data: `StartReportRequest` — `moduleId` (required, must be ACTIVE), `shiftId` /
+`lineId` (optional). When supplied, the shift/line **names are resolved once and
+frozen**; otherwise the shift is auto-detected for the current time and no line is
+set.
+
+Behavior: resolves the module's **latest ACTIVE template version** and **freezes
+it** on the new session; sets `currentProcess` to the first ACTIVE process (by
+`displayOrder`). Returns `ReportSessionResponse`: `id`, `moduleId`, `moduleName`,
+`templateVersionId`, `versionNumber`, `currentProcessId`, `startedAt`,
+`completedProcessCount`, `status` (`IN_PROGRESS`), `shiftId`/`shiftName`/`lineId`/`lineName`.
+
+### `GET /api/report-engine/sessions/{sessionId}` — Get a session snapshot
+
+Returns the current `ReportSessionResponse` (or 404).
+
+### `GET /api/report-engine/sessions/{sessionId}/current` — Load the current process step
+
+Returns the `ReportProcessStep` the frontend must render: `processId`, `name`,
+`description`, `displayOrder`, `lastProcess` (bool), and `fields`
+(`ProcessParameterField` list — ``processParameterId`, `parameterId`,
+`parameterName`, `inputType`, `mandatory`, `unit`, `minimumValue`,
+`maximumValue`, `defaultValue`), all backend-derived from the frozen template.
+The frontend only renders this; it never computes navigation.
+
+### `POST /api/report-engine/sessions/{sessionId}/save-next` — Save current process, get next
+
+Data: `RecordProcessRequest` — `values`: `[ { processParameterId, observedValue } ]`.
+
+Values must cover every **mandatory** visible field, else 400. Records the current
+process (with a `processOrderSnapshot`), advances `currentProcess` to the next
+process **by `displayOrder`**, and returns `RecordProcessResponse`. When the saved
+process **was the last**, the session is completed and the completed report is
+created and submitted (`reportCompleted=true`, `report` populated,
+`nextProcess=null`).
+
+### `POST /api/report-engine/sessions/{sessionId}/save-submit` — Save final process & submit
+
+Same request shape as save-next. Records the current process and unconditionally
+completes + submits the report. Returns `RecordProcessResponse` with
+`reportCompleted=true` and the `report` (`CompletedReportResponse`:
+`id`, `reportNumber`, `moduleName`, `versionNumber`, `prefix`, `moduleType`,
+`shiftId`/`shiftName`/`lineId`/`lineName`, `startedAt`, `submittedAt`, `status`
+(`SUBMITTED`), `sessionId`).
+
+### `GET /api/report-engine/sessions/{sessionId}/recorded`
+
+Returns the session's `RecordedProcessItem` list — each with `id`, `processId`,
+`processName`, `processOrderSnapshot`, and its **grouped** `values`
+(`RecordedValueItem`: `id`, `processParameterId`, `parameterId`, `parameterName`,
+`inputType`, `unit`, `minimumValue`, `maximumValue`, `observedValue`). Values are
+grouped under their process; never flattened.
+
+### `GET /api/report-engine/reports/{reportId}` — Get a submitted report
+### `GET /api/report-engine/reports/my` — List my submitted reports
+### `GET /api/report-engine/sessions/my` — List my in-progress sessions
+
+Read helpers for the current user (RBAC `isAuthenticated`).
+
+---
+
+## 20. Appendix A — DTO Reference
 
 The request DTOs below are the component schemas exposed by the OpenAPI spec. Response payloads are documented inline per endpoint; the spec models every response through a concrete typed `ApiResponse<T>` variant (e.g. `ApiResponseUserResponse`, `ApiResponsePageResponseAuditLogResponse`) whose `data` resolves to the endpoint's actual DTO, list, or page schema.
 
@@ -10252,52 +5992,60 @@ The request DTOs below are the component schemas exposed by the OpenAPI spec. Re
 |---|---|---|
 | `ApiError` | Response | Standard API error response envelope returned on all failed requests |
 | `ApiResponse` | Model | Generic response wrapper; materialized in the spec as per-endpoint typed variants (e.g. `ApiResponseUserResponse`) |
-| `ApproveChemicalConsumptionRequest` | Model | Request payload for approving or rejecting a Chemical Consumption report |
-| `ApproveDailyInspectionRequest` | Model | Request payload for approving or rejecting a Daily Inspection report |
-| `ApproveDailyStartupRequest` | Model | Request payload for approving or rejecting a Daily Startup report |
-| `ApproveFirstPieceInspectionRequest` | Model | Request payload for approving or rejecting a First Piece Inspection report |
-| `ApprovePreDeliveryInspectionRequest` | Model | Request payload for approving or rejecting a Pre-Delivery Inspection report |
-| `ApproveReportRequest` | Model | Request payload for approving or rejecting a Process Monitoring report |
 | `AuditFilterRequest` | Model | Request to filter audit log entries |
 | `BulkUpdateItem` | Request | A single setting key-value pair for bulk update |
 | `BulkUpdateSettingsRequest` | Request | Request to bulk update system settings |
 | `ChangePasswordRequest` | Request | Request payload for changing the current user's password |
-| `ChemicalConsumptionEntryRequest` | Request | An individual entry within a Chemical Consumption report |
-| `CreateChemicalConsumptionRequest` | Request | Request payload for creating a Chemical Consumption report |
-| `CreateDailyInspectionRequest` | Request | Request payload for creating a Daily Inspection report |
-| `CreateDailyStartupRequest` | Request | Request payload for creating a Daily Startup report |
-| `CreateFirstPieceInspectionRequest` | Request | Request payload for creating a First Piece Inspection report |
+| `CompletedReportResponse` | Response | A completed engine report with immutable snapshots (module/template/values) |
 | `CreateIntegrationRequest` | Request | Request to create a new integration |
 | `CreateLineRequest` | Request | Request body for creating a new production line |
-| `CreateParameterRequest` | Request | Request body for creating a new inspection parameter |
-| `CreatePreDeliveryInspectionRequest` | Request | Request payload for creating a Pre-Delivery Inspection report |
-| `CreateProcessMonitoringRequest` | Request | Request payload for creating a Process Monitoring report |
+| `CreateModuleRequest` | Request | Request body for creating a module |
+| `CreateModuleTypeRequest` | Request | Request body for creating a module type |
+| `CreateParameterRequest` | Request | Request body for creating a module parameter |
+| `CreateProcessParameterRequest` | Request | Request body for creating a process parameter |
+| `CreateProcessRequest` | Request | Request body for creating a process |
 | `CreateSettingRequest` | Request | Request to create a new system setting |
 | `CreateShiftRequest` | Request | Request body for creating a new shift |
+| `CreateTemplateVersionRequest` | Request | Request body for freezing a new template version |
 | `CreateUserRequest` | Request | Request payload for creating a new user |
-| `DailyInspectionEntryRequest` | Request | An individual entry within a Daily Inspection report |
-| `DailyStartupEntryRequest` | Request | An individual entry within a Daily Startup report |
-| `FirstPieceInspectionEntryRequest` | Request | An individual entry within a First Piece Inspection report |
 | `LoginRequest` | Request | Login request payload |
-| `PreDeliveryInspectionEntryRequest` | Request | An individual entry within a Pre-Delivery Inspection report |
-| `ProcessMonitoringEntryRequest` | Request | An individual entry within a Process Monitoring report |
+| `ModuleFilterRequest` | Request | Request to filter modules |
+| `ModuleResponse` | Response | Module response payload |
+| `ModuleTypeFilterRequest` | Request | Request to filter module types |
+| `ModuleTypeResponse` | Response | Module type response payload |
+| `ModuleTypeSummaryResponse` | Response | Lightweight module type summary |
+| `ParameterFilterRequest` | Request | Request to filter parameters |
+| `ParameterResponse` | Response | Module parameter response payload |
+| `ParameterSummaryResponse` | Response | Lightweight module parameter summary |
+| `ProcessFilterRequest` | Request | Request to filter processes |
+| `ProcessParameterField` | Response | A frozen field definition resolved from a process parameter |
+| `ProcessParameterResponse` | Response | Process parameter response payload |
+| `ProcessResponse` | Response | Process response payload |
+| `RecordProcessRequest` | Request | Request to save recorded values for one process step |
+| `RecordProcessResponse` | Response | Saved process-step snapshot with frozen values |
+| `RecordedProcessItem` | Response | A recorded process step within a report session |
+| `RecordedValueItem` | Response | A single frozen recorded value within a process step |
+| `RecordedValueRequest` | Request | Single observed value for a process parameter |
 | `RefreshTokenRequest` | Request | Refresh token request payload |
-| `SubmitChemicalConsumptionRequest` | Model | Request payload for submitting a Chemical Consumption report |
-| `SubmitDailyInspectionRequest` | Model | Request payload for submitting a Daily Inspection report |
-| `SubmitDailyStartupRequest` | Model | Request payload for submitting a Daily Startup report |
-| `SubmitFirstPieceInspectionRequest` | Model | Request payload for submitting a First Piece Inspection report |
-| `SubmitPreDeliveryInspectionRequest` | Model | Request payload for submitting a Pre-Delivery Inspection report |
-| `SubmitReportRequest` | Model | Request payload for submitting a Process Monitoring report |
+| `ReportProcessStep` | Response | A process step definition in a report session |
+| `ReportSessionResponse` | Response | A report session with its recorded processes |
+| `StartReportRequest` | Request | Request to start a report session (moduleId, optional shiftId/lineId) |
+| `TemplateVersionResponse` | Response | Template version response payload |
+| `UnifiedSearchRequest` | Request | Unified search query with entity type and filters |
 | `UpdateAttachmentRequest` | Model | Request to update an existing attachment's metadata |
 | `UpdateIntegrationRequest` | Request | Request to update an existing integration |
 | `UpdateLineRequest` | Request | Request body for updating an existing production line |
-| `UpdateParameterRequest` | Request | Request body for updating an existing inspection parameter |
+| `UpdateModuleRequest` | Request | Request body for updating a module |
+| `UpdateModuleTypeRequest` | Request | Request body for updating a module type |
+| `UpdateParameterRequest` | Request | Request body for updating a module parameter |
+| `UpdateProcessParameterRequest` | Request | Request body for updating a process parameter |
+| `UpdateProcessRequest` | Request | Request body for updating a process |
 | `UpdateSettingRequest` | Request | Request to update an existing system setting |
 | `UpdateShiftRequest` | Request | Request body for updating an existing shift |
 | `UpdateStatusRequest` | Request | Request payload for updating a user's active status |
 | `UpdateUserRequest` | Request | Request payload for updating an existing user |
 
-## 27. Appendix B — Status Codes
+## 21. Appendix B — Status Codes
 
 | Code | Meaning | Usage |
 |---|---|---|

@@ -13,18 +13,16 @@ import java.util.Map;
  * Builds the native SQL for the unified enterprise search (reports + users +
  * parameters) over a single UNION of the three entity sources, plus the count
  * query. All filters are optional and parameterized.
+ *
+ * <p>Phase 4: the REPORT branch now reads exclusively from the Generic Report
+ * Engine {@code report} table (CompletedReport) and its immutable snapshots,
+ * instead of the legacy ReportType tables. Report results carry the module
+ * identity (module_name / module_type), shift, line, date and status from the
+ * engine; the PARAMETER branch reads the module architecture's global
+ * {@code parameter} table, and the user branch reads {@code users}.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class UnifiedSearchQueryBuilder {
-
-    private static final List<String> REPORT_TABLES = List.of(
-            "process_monitoring_reports",
-            "chemical_consumption_reports",
-            "daily_startup_reports",
-            "first_piece_inspection_reports",
-            "daily_inspection_reports",
-            "pre_delivery_inspection_reports"
-    );
 
     private static final Map<String, String> SORT_COLUMN_MAP = Map.of(
             "createdAt", "created_at",
@@ -36,16 +34,15 @@ public class UnifiedSearchQueryBuilder {
 
     private static final String REPORT_SELECT = """
             SELECT 'REPORT' AS type, r.id, r.report_number AS title,
-                   r.report_type::varchar AS subtitle,
-                   r.report_type::varchar AS report_type,
+                   r.module_name AS subtitle,
+                   r.module_name AS report_type,
                    r.status::varchar AS status,
-                   s.name AS shift_name, l.name AS line_name,
+                   r.shift_name AS shift_name, r.line_name AS line_name,
                    COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.employee_id) AS actor,
-                   r.report_date, r.created_at,
-                   NULL::varchar AS role_name, r.shift_id, r.line_id
-            FROM %s r
-            LEFT JOIN shifts s ON s.id = r.shift_id
-            LEFT JOIN line_master l ON l.id = r.line_id
+                   r.started_at::date AS report_date, r.created_at,
+                   NULL::varchar AS role_name, r.shift_id, r.line_id,
+                   r.module_id, r.module_type_id
+            FROM report r
             LEFT JOIN users u ON u.id = r.created_by
             """;
 
@@ -56,27 +53,29 @@ public class UnifiedSearchQueryBuilder {
                    NULL::varchar AS shift_name, NULL::varchar AS line_name,
                    CONCAT(u.first_name, ' ', u.last_name) AS actor,
                    NULL::date AS report_date, u.created_at,
-                   r.name AS role_name, NULL::bigint AS shift_id, NULL::bigint AS line_id
+                   r.name AS role_name, NULL::bigint AS shift_id, NULL::bigint AS line_id,
+                   NULL::bigint AS module_id, NULL::bigint AS module_type_id
             FROM users u
             LEFT JOIN roles r ON r.id = u.role_id
             """;
 
     private static final String PARAMETER_SELECT = """
-            SELECT 'PARAMETER' AS type, p.id, p.parameter_name AS title,
-                   COALESCE(p.unit, '') AS subtitle,
-                   p.report_type::varchar AS report_type,
+            SELECT 'PARAMETER' AS type, p.id, p.name AS title,
+                   COALESCE(p.description, '') AS subtitle,
+                   NULL::varchar AS report_type,
                    NULL::varchar AS status,
                    NULL::varchar AS shift_name, NULL::varchar AS line_name,
                    NULL::varchar AS actor,
                    NULL::date AS report_date, p.created_at,
-                   NULL::varchar AS role_name, NULL::bigint AS shift_id, NULL::bigint AS line_id
-            FROM parameter_master p
+                   NULL::varchar AS role_name, NULL::bigint AS shift_id, NULL::bigint AS line_id,
+                   NULL::bigint AS module_id, NULL::bigint AS module_type_id
+            FROM parameter p
             """;
 
     private static final String COMMON_SELECT =
             "SELECT type, id, title, subtitle, report_type, status, " +
             "shift_name, line_name, actor, report_date, created_at, " +
-            "role_name, shift_id, line_id FROM (";
+            "role_name, shift_id, line_id, module_id, module_type_id FROM (";
 
     public static String buildDataQuery(UnifiedSearchRequest request) {
         return COMMON_SELECT
@@ -97,9 +96,7 @@ public class UnifiedSearchQueryBuilder {
         String type = request == null ? null : request.getType();
 
         if (type == null || UnifiedSearchRequest.TYPE_REPORT.equalsIgnoreCase(type)) {
-            for (String table : REPORT_TABLES) {
-                branches.add(REPORT_SELECT.formatted(table));
-            }
+            branches.add(REPORT_SELECT);
         }
         if (type == null || UnifiedSearchRequest.TYPE_USER.equalsIgnoreCase(type)) {
             branches.add(USER_SELECT);
@@ -143,6 +140,12 @@ public class UnifiedSearchQueryBuilder {
         if (request.getLineId() != null) {
             conditions.add("line_id = :lineId");
         }
+        if (request.getModuleId() != null) {
+            conditions.add("module_id = :moduleId");
+        }
+        if (request.getModuleTypeId() != null) {
+            conditions.add("module_type_id = :moduleTypeId");
+        }
         if (request.getDateFrom() != null) {
             conditions.add("report_date >= :dateFrom");
         }
@@ -179,6 +182,8 @@ public class UnifiedSearchQueryBuilder {
         putIfPresent(params, "role", request.getRole());
         if (request.getShiftId() != null) params.put("shiftId", request.getShiftId());
         if (request.getLineId() != null) params.put("lineId", request.getLineId());
+        if (request.getModuleId() != null) params.put("moduleId", request.getModuleId());
+        if (request.getModuleTypeId() != null) params.put("moduleTypeId", request.getModuleTypeId());
         if (request.getDateFrom() != null) params.put("dateFrom", request.getDateFrom());
         if (request.getDateTo() != null) params.put("dateTo", request.getDateTo());
         return params;

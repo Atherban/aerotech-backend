@@ -1,6 +1,6 @@
 # CED Operations — System Blueprint
 
-> Version 1 — Predefined Reports Only
+> Version 1 — Configuration-Driven Reporting
 
 This document is the authoritative architecture reference for the CED Operations
 Management System. It reflects the client-approved business workflow.
@@ -27,35 +27,27 @@ reference), [CURRENT_STATE.md](CURRENT_STATE.md) (implementation snapshot),
 
 ## 1. Business Model
 
-Version 1 supports **only predefined (standard) reports**. Users cannot create
-custom report types, and there is **no generic report builder**.
+The Generic **Report Engine is configuration-driven**: report types are not
+hardcoded. Super Admin composes them from the module hierarchy
+`Module Type → Module → Template Version → Process → Process Parameter → (global)
+Parameter`. A report is executed through the engine as a versioned template of
+ordered processes, each with configured fields.
 
-Supported report types:
+> **Implementation status:** the module-driven engine is **live and the only
+> report architecture** (Phase 5 complete). The legacy hardcoded ReportType
+> engine and its six predefined report tables were removed.
 
-| Code | Report |
-|------|--------|
-| `PROCESS_MONITORING` | Process Monitoring |
-| `CHEMICAL_CONSUMPTION` | Chemical Consumption |
-| `DAILY_STARTUP` | Daily Startup Checklist |
-| `DAILY_INSPECTION` | Daily Inspection |
-| `FIRST_PIECE_INSPECTION` | First Piece Inspection |
-| `PDI` | Pre Delivery Inspection |
-
-Each report type **directly owns** the parameters (fields) that must be captured.
-There is **no intermediate Process concept**.
-
-> **Implementation status:** all six predefined report types are implemented on
-> the shared report engine (`AbstractReportService` / `BaseReportMapper` /
-> `ReportTypeMetadata`) and are **completed / frozen**.
-
-> **Version 1 report capabilities:** ✓ create (stored as DRAFT), ✓ view/list/
-> search/filter, ✓ submit, ✓ approve/reject with remarks, ✓ delete draft
-> (SUPER_ADMIN only). ✗ **Edit existing draft / resume / save draft changes** and
-> ✗ **edit rejected + resubmit** are **not supported** — there is no report
-> update endpoint. See the lifecycle note in §2 and `FEATURES_ROADMAP.md`.
+> **Report capabilities:** ✓ start a session (freezes the active template
+> version), ✓ save one process at a time (server-advanced by `displayOrder`),
+> ✓ save & submit (produces a completed `report`), ✓ view/list, ✓ search/filter,
+> ✓ dashboard & analytics. Approval columns are forward-compatible. ✗ Report
+> **edit / resume** and ✗ approval & edit-rejected+resubmit are **not yet
+> implemented**. See the lifecycle note in §2, `CURRENT_STATE.md`, and
+> `FEATURES_ROADMAP.md`.
 
 ```
-Report Type ──1:N──► Parameter
+Module Type ──1:N──► Module ──1:N──► Template Version ──1:N──► Process
+    └──────── Process ──1:N──► Process Parameter ──M:1──► Parameter (global)
 ```
 
 ## 2. Business Workflow
@@ -64,50 +56,36 @@ Report Type ──1:N──► Parameter
 
 1. Super Admin logs in.
 2. Super Admin creates **Users**, **Shifts**, **Lines**.
-3. Super Admin selects one of the predefined **Report Types**.
-4. Super Admin configures the **Parameters** required by that report.
+3. Super Admin composes the **Module hierarchy**: a Module Type → a Module (with
+   a prefix) → its template version → ordered Processes → per-process
+   Parameters (bound from the global parameter catalog, with unit/min/max).
 
-Example — Chemical Consumption:
-
-```
-Bath Temperature
-Paint Added
-UF Conductivity
-Voltage
-Remarks
-```
-
-Example — Daily Startup Checklist:
+Example — a Process Monitoring module's processes:
 
 ```
-Pump Check
-Air Pressure
-Emergency Stop
-Conveyor
-Remarks
+1. Bath Setup        → Bath Temperature, Voltage, Conductivity
+2. Chemical Make-up  → Chemical A, Chemical B
+3. Line Check        → Remarks
 ```
-
-No additional process configuration exists. The report type itself represents the
-business process.
 
 ### Phase 2 — Daily Operation (Staff)
 
 1. Staff logs in.
-2. Staff selects **Report Type**.
-3. Staff selects **Production Line**.
-4. **Shift is determined automatically** by the backend from the current
-   timestamp (overnight shifts supported, e.g. `22:00 → 06:00`).
-5. Backend loads all configured parameters for that report type.
-6. Staff fills observations.
-7. Staff **Saves Draft** or **Submits**.
+2. Staff selects a **Module** (and optionally the **Line** and **Shift**).
+3. **Shift is determined automatically** by the backend from the current
+   timestamp when not supplied (overnight shifts supported).
+4. Backend freezes the module's **latest ACTIVE template version** and presents
+   the first process step.
+5. Staff fills each process; the backend advances one step at a time and records
+   the values grouped under the process.
+6. Staff **Save & Submits** the final step → a **Completed Report** is created
+   with immutable snapshots of the configuration used.
 
 ### Phase 3 — Approval (Admin)
 
-1. Admin reviews submitted reports.
-2. Admin **Approves** or **Rejects**.
-3. ⚠️ **Not implemented in V1:** if rejected, staff **edits** and **resubmits**.
-   There is no report update endpoint — `REJECTED` is terminal in the current
-   backend. See `CURRENT_STATE.md`.
+Forward-compatible `approved_at` / `approved_by` columns exist on the completed
+report; the approval workflow ships in a later phase. **Not implemented yet:**
+approve/reject and the rejected→edit→resubmit loop (no report update endpoint).
 
 ### Phase 4 — Reporting
 
@@ -125,46 +103,49 @@ Approved reports are available for:
 
 ## 3. Domain Model
 
-### Master Data
+### Module-Driven Master Data
 
 - **User** — staff with a role (`SUPER_ADMIN`, `ADMIN`, `OPERATOR`).
 - **Shift** — `name`, `startTime`, `endTime`, `active`. Used for automatic shift
   detection (including overnight shifts).
 - **Line** — production line master data.
-- **Parameter** — a field owned by exactly one report type. Carries
-  `parameterName`, `minValue`, `maxValue`, `unit`, `testMethod`, `frequency`,
-  `inputType`, `mandatory`, `visible`, `defaultValue`, `displayOrder`, `active`,
-  and `reportType`. Together the parameters of a report type form its **report
-  template**, configured by Super Admin (Feature Completion — Report Template
-  Configuration).
-- **ReportType** — a fixed enumeration of the six predefined report types.
+- **Module Type** — a configurable category of reports (e.g. Production,
+  Quality); `active`.
+- **Module** — a reusable report template; `module_type`, `name`, `prefix`
+  (used in the report number), `status` (`DRAFT`/`ACTIVE`/`ARCHIVED`).
+- **Template Version** — a versioned snapshot of a module's processes; `status`
+  (`DRAFT`/`ACTIVE`/`SUPERSEDED`). Publishing a DRAFT activates it.
+- **Process** — an ordered step (`displayOrder`) within a template version.
+- **Process Parameter** — binds a global Parameter to a Process with
+  `displayOrder`, `mandatory`, `visible`, `unit`, `min`/`max`, `default`.
+- **Parameter** — a global reusable field definition (`name`, `input_type`,
+  `description`, `active`).
 
-### Reports
+### Reports (Generic Report Engine)
 
-Every report extends the same base structure:
+A report is executed through the engine:
 
-```
-report_number, report_type, report_date, shift_id, line_id, status,
-created_by, approved_by, approved_at, remarks
-```
-
-Each report has a set of **entries**:
-
-```
-parameter_id, observed_value, inspection_result, remark
-```
-
-Status lifecycle:
-
-```
-DRAFT → SUBMITTED → APPROVED
-                ↘ REJECTED   (terminal in V1 — edit + resubmit NOT implemented)
+```text
+ReportSession (work in progress)
+   └── freezes the module's template version at start
+   └── records each Process (RecordedProcess) with a process-order snapshot
+        └── each with RecordedValue entries (frozen parameter name/unit/min/max)
+   └── Save & Submit → Completed Report (report) with module/version/shift/line
+       snapshots + immutable spec
 ```
 
-> ⚠️ **V1 limitation:** a report is created in one step (stored as `DRAFT`) and
-> has no update endpoint. Drafts cannot be edited/resumed, and a `REJECTED`
-> report has no transition back to `SUBMITTED`. The intended `REJECTED →
-> (edit + resubmit) → SUBMITTED` loop is a post-V1 roadmap item (§8).
+Status lifecycle of a session / completed report:
+
+```text
+IN_PROGRESS → COMPLETED (→ SUBMITTED report)
+```
+
+Completed reports carry `startedAt`/`submittedAt`/`status` and forward-compatible
+`approvedAt`/`approvedBy`.
+
+> ⚠️ **V1 limitation:** a completed report has no update endpoint — it cannot be
+> edited/resumed, and approval (approve/reject) is not yet implemented. The
+> `REJECTED → (edit + resubmit) → SUBMITTED` loop is a post-V1 roadmap item (§8).
 
 ## 4. Architecture
 
@@ -185,17 +166,12 @@ Package layout (`com.aerotech.ced_ops_backend`):
 ├── master/
 │   ├── line/        # Line master
 │   ├── shift/       # Shift master + automatic shift detection
-│   ├── parameter/   # Parameter master (owned by report type)
-│   └── reporttype/  # Fixed report type catalog (read-only)
+│   └── module/      # Module-driven hierarchy: module types, modules,
+│                    #   template versions, processes, global parameters
 ├── report/
-│   ├── chemical/               # Chemical Consumption
-│   ├── processmonitoring/      # Process Monitoring
-│   ├── dailystartup/           # Daily Startup Checklist
-│   ├── dailyinspection/        # Daily Inspection
-│   ├── firstpieceinspection/   # First Piece Inspection
-│   ├── predeliveryinspection/  # Pre Delivery Inspection
-│   ├── dashboard/              # Dashboard summaries
-│   └── globalsearch/           # Report search + unified search (reports/users/parameters)
+│   ├── engine/      # Generic report engine (sessions + completed reports)
+│   ├── dashboard/   # Dashboard summaries
+│   └── globalsearch/ # Unified search (reports/users/parameters) on the engine
 ├── analytics/       # KPI analytics
 ├── user/            # User management
 ├── role/            # Role management
@@ -213,21 +189,33 @@ Master data:
 | `roles` | `name`, `description` |
 | `shifts` | `name`, `start_time`, `end_time`, `active` |
 | `line_master` | `name`, `description`, `display_order`, `active` |
-| `parameter_master` | `report_type`, `parameter_name`, `min_value`, `max_value`, `unit`, `test_method`, `frequency`, `input_type`, `mandatory`, `visible`, `default_value`, `display_order`, `active` |
 
-> `process_master` has been **removed**. Parameters belong directly to a report
-> type via `parameter_master.report_type`.
+Module-driven master data tables (from `V9__Module_architecture_schema.sql`):
 
-Report tables (one pair per predefined report type):
+| Table | Columns |
+|-------|---------|
+| `module_type` | `name`, `description`, `active` |
+| `module` | `module_type_id`, `name`, `prefix`, `description`, `status` (`DRAFT/ACTIVE/ARCHIVED`) |
+| `module_template_version` | `module_id`, `version_number`, `status` (`DRAFT/ACTIVE/SUPERSEDED`), `change_note` |
+| `module_process` | `template_version_id`, `name`, `description`, `display_order`, `status` |
+| `parameter` | `name`, `input_type`, `description`, `active` (global reusable) |
+| `process_parameter` | `process_id`, `parameter_id`, `display_order`, `mandatory`, `visible`, `default_value`, `unit`, `min/max`, `active` |
 
-| Report | Report table | Entry table |
-|--------|--------------|-------------|
-| Process Monitoring | `process_monitoring_reports` | `process_monitoring_entries` |
-| Chemical Consumption | `chemical_consumption_reports` | `chemical_consumption_entries` |
-| Daily Startup | `daily_startup_reports` | `daily_startup_entries` |
-| Daily Inspection | `daily_inspection_reports` | `daily_inspection_entries` |
-| First Piece Inspection | `first_piece_inspection_reports` | `first_piece_inspection_entries` |
-| PDI | `pre_delivery_inspection_reports` | `pre_delivery_inspection_entries` |
+Report engine tables (from `V10__Generic_report_engine.sql`):
+
+| Table | Columns |
+|-------|---------|
+| `report_session` | `module_id`, `template_version_id` (frozen), `current_process_id`, `started_at`, `completed_process_count`, `submitted_at`, `status`, `created_by`, `shift_id`/`shift_name`/`line_id`/`line_name` (captured at start) |
+| `recorded_process` | `session_id`, `process_id`, `process_order_snapshot`, `status`, `completed_at` |
+| `recorded_value` | `recorded_process_id`, `process_parameter_id`, `parameter_id`, `observed_value`, `parameter_name`, `unit`, `input_type`, `minimum_value`, `maximum_value` (frozen spec snapshots) |
+| `report` (CompletedReport) | `report_number`, `module_id`, `template_version_id`, `started_at`, `submitted_at`, `status`, `created_by`, `session_id`, `module_name`, `module_prefix`, `template_version_number`, `module_type_id`/`module_type_name`, `shift_id`/`shift_name`, `line_id`/`line_name`, `approved_at`/`approved_by` (forward-compatible) |
+
+> The business-facing read models — **Dashboard**, **Unified Search**, and
+> **Analytics** — read exclusively from the engine tables above
+> (`report`/`completed_report`, `recorded_process`, `recorded_value`). Historical
+> reports stay readable via the immutable snapshots even when master data
+> changes. The legacy per-type report tables and the report-type parameter
+> catalog were dropped by migration `V12`.
 
 Additional infrastructure tables: `refresh_token`, `system_settings`,
 `notifications`, `attachments`, `audit_logs`.
@@ -254,11 +242,10 @@ matches, the shift with the earliest `startTime` is used as a fallback.
 | Users | `/api/users` |
 | Shifts | `/api/shifts` (+ `GET /api/shifts/current`) |
 | Lines | `/api/lines` |
-| Parameters | `/api/parameters` (by report type: `GET /api/parameters/report-type/{type}`) |
-| Report types | `GET /api/report-types` (fixed catalog) |
-| Reports | `/api/reports/chemical-consumption`, `/api/reports/process-monitoring`, `/api/reports/daily-startup`, `/api/reports/daily-inspection`, `/api/reports/first-piece-inspection`, `/api/reports/pre-delivery-inspection` |
+| Module-driven master data | Module types `/api/module-types` · Modules `/api/modules` (incl. template versions) · Processes `/api/processes` · Process parameters `/api/processes/{id}/parameters` · Global parameters `/api/module-parameters` |
+| Report engine | `/api/report-engine` — `POST /start`, `GET /sessions/{id}`, `GET /sessions/{id}/current`, `POST /sessions/{id}/save-next`, `POST /sessions/{id}/save-submit`, `GET /sessions/{id}/recorded`, `GET /reports/{id}`, `GET /reports/my`, `GET /sessions/my` |
 | Dashboard | `/api/reports/dashboard` |
-| Search | `/api/reports/search` (report-only) · `/api/search` (unified reports + users + parameters) |
+| Search | `/api/search` (unified reports + users + parameters) |
 | Analytics | `/api/analytics` |
 
 > The backend provides structured JSON APIs only; PDF/Excel/CSV/print export is
@@ -275,28 +262,28 @@ A shared framework (`common/pagination`) backs every list endpoint in the system
 - **`SpecificationBuilder`** — reusable JPA `Specification` builder.
 - **`PageResponse<T>`** — the single paginated envelope.
 
-Applied to: Users, Parameters, and all six report listings (which double as the
-dashboard report history). Endpoints are **backward compatible**: without any
-paging/filter param they return the legacy full list; supplying params returns a
-`PageResponse<T>`. See `API_DOCUMENTATION.md` section 4.
+Applied to: Users, module-driven master data lists, and the engine's report/session
+lists. Endpoints are **backward compatible**: without any paging/filter param
+they return the full list; supplying params returns a `PageResponse<T>`. See
+`API_DOCUMENTATION.md` section 4.
 
 See `API_DOCUMENTATION.md` for full request/response details.
 
 ## 7. Security & Roles
 
-- `SUPER_ADMIN` — full access, manages master data, approves reports.
-- `ADMIN` — manages master data, approves/rejects reports.
-- `OPERATOR` — logs in, creates/submits reports.
+- `SUPER_ADMIN` — full access, manages master data and the module hierarchy.
+- `ADMIN` — manages master data and the module hierarchy.
+- `OPERATOR` — logs in, starts/saves report sessions and submits reports.
 
 JWT access + refresh tokens. RBAC enforced via `@PreAuthorize`.
 
 ## 8. Future Roadmap (post V1)
 
-- Report **edit / resubmit** for rejected reports, plus **draft edit/resume**
-  (backend enablers planned — no update endpoint exists in V1).
+- Report **approve / reject** workflow (columns are forward-compatible) and
+  **edit / resubmit** for rejected reports, plus **draft edit/resume**.
 - Attachments per report entry.
-- Dashboard widgets per report type.
+- Dashboard widgets per module.
 - Parameter-level analytics.
-- Notifications for approval workflow.
+- Notifications for the report workflow.
 - Integration with external systems.
 - (Out of scope by design) Custom report types and a generic report builder.

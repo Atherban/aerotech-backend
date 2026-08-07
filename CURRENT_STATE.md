@@ -1,235 +1,194 @@
 # CED Operations — Current State
 
-> Snapshot of the current implementation state of the `ced-ops-backend` service.
-> The six predefined report modules are built on the **report engine** and are
-> considered **frozen** (no further architectural refactoring unless explicitly
-> requested).
+> Snapshot of the **current** implementation of the `ced-ops-backend` service.
+> This document describes the system as it exists today — the
+> **configuration-driven Generic Report Engine** is the only report
+> architecture. There is no legacy report code, no per-report-type tables, and
+> no report-type catalog. (Migration history lives in `MIGRATION_PLAN.md`.)
 
 ## Table of Contents
 
-- [Legend](#legend)
-- [Report modules](#report-modules)
-- [Shared / frozen infrastructure](#shared--frozen-infrastructure)
-- [Report Template Configuration (completed)](#feature-completion--report-template-configuration-completed)
-- [Dashboard APIs (completed)](#feature-completion--dashboard-apis-completed)
-- [Unified Pagination & Filtering (completed)](#feature-completion--unified-pagination--filtering-completed)
-- [Export — frontend-implemented (completed)](#decision--export-is-frontend-implemented-completed)
-- [Global Search (completed)](#feature-completion--global-search-completed)
-- [Business Workflow Verification (completed)](#business-workflow-verification-completed)
-- [Other areas](#other-areas)
-- [Not implemented in Version 1 (documented)](#not-implemented-in-version-1-documented)
-- [Planned (documented, NOT implemented)](#planned-documented-not-implemented)
+1. [Architecture](#1-architecture)
+2. [Module Hierarchy (Configuration)](#2-module-hierarchy-configuration)
+3. [Report Engine Workflow](#3-report-engine-workflow)
+4. [Completed Features](#4-completed-features)
+5. [Implemented APIs](#5-implemented-apis)
+6. [Current Database Structure](#6-current-database-structure)
+7. [Known Limitations](#7-known-limitations)
+8. [Pending Features](#8-pending-features)
+9. [Test Status](#9-test-status)
 
-## Legend
+---
 
-- **Completed** — implemented, tested (build + smoke test pass), and documented.
-- **Frozen** — architecture is stable; extend only by adding report-specific
-  components (service/mapper/entities/DTOs), never by modifying the engine.
+## 1. Architecture
 
-## Report modules
+- **Single generic data model.** Reports are instances of configurable
+  **Modules**. No report type is hardcoded — everything a report contains is
+  defined by master data.
+- **Template versioning.** A Module's processes and process parameters are
+  versioned together. `POST /api/report-engine/start` freezes the module's
+  latest `ACTIVE` template version; historical reports always reference the
+  exact specification in use when the session started.
+- **Immutable snapshots.** Completed reports and recorded values carry frozen
+  copies (module name/prefix, template version number, module type, shift/line
+  id + name; parameter name/unit/inputType/min/max) so historical data stays
+  correct after configuration changes.
+- **Backend-authoritative navigation.** The engine advances a session one
+  process at a time by `displayOrder`; the frontend renders only the step the
+  server returns.
+- **No per-type code.** Dashboard, unified search, and analytics read the
+  engine tables directly (`report`, `recorded_process`, `recorded_value`).
 
-| Module | ReportType / code | Prefix | Status |
-|--------|-------------------|--------|--------|
-| Process Monitoring | `PROCESS_MONITORING` / `PMR` | `process-monitoring` | Completed / Frozen |
-| Chemical Consumption | `CHEMICAL_CONSUMPTION` / `CCR` | `chemical-consumption` | Completed / Frozen |
-| Daily Startup Checklist | `DAILY_STARTUP` / `DSR` | `daily-startup` | **Completed** |
-| Daily Inspection | `DAILY_INSPECTION` / `DIR` | `daily-inspection` | Completed / Frozen |
-| First Piece Inspection | `FIRST_PIECE_INSPECTION` / `FPI` | `first-piece-inspection` | Completed / Frozen |
-| Pre-Delivery Inspection | `PDI` / `PDI` | `pre-delivery-inspection` | Completed / Frozen |
+## 2. Module Hierarchy (Configuration)
 
-### Daily Startup Checklist — implementation summary
+Configured through master-data APIs by `SUPER_ADMIN` / `ADMIN`:
 
-- Entities: `DailyStartupReport` (`daily_startup_reports`), `DailyStartupEntry`
-  (`daily_startup_entries`).
-- Engine reuse: `DailyStartupService extends AbstractReportService`,
-  `DailyStartupMapper extends BaseReportMapper`, metadata in
-  `ReportTypeMetadata` (`DAILY_STARTUP`, prefix `DSR`).
-- Request DTOs: `CreateDailyStartupRequest`, `SubmitDailyStartupRequest`,
-  `ApproveDailyStartupRequest`, `DailyStartupEntryRequest`.
-- Response DTOs: `DailyStartupResponse`, `DailyStartupEntryResponse`.
-- Repositories: `DailyStartupReportRepository`, `DailyStartupEntryRepository`.
-- Controller: `DailyStartupController` at `/api/reports/daily-startup`
-  (create / getAll / getById / submit / approve / reject / delete), RBAC per the
-  shared report convention.
-- Reuses `ValidationService`, `ReportNumberGenerator`, the approval workflow, and
-  `ApiResponse`/`ApiError` envelopes exactly as other report modules.
+```
+Module Type
+   ──1:N──► Module ──1:N──► Template Version ──1:N──► Process
+                                                         └──1:N──► Process Parameter ──M:1──► Parameter (global)
+```
 
-## Shared / frozen infrastructure
+| Level | Description | Lifecycle |
+|-------|-------------|-----------|
+| **Module Type** | A configurable category of reports (e.g. Production, Quality). | `active` (soft-deleted) |
+| **Module** | A reusable report template with a unique **prefix** used in report numbers. | `DRAFT` / `ACTIVE` / `ARCHIVED` |
+| **Template Version** | A versioned snapshot of a module's processes and process parameters. | `DRAFT` / `ACTIVE` / `SUPERSEDED` |
+| **Process** | An ordered step within a template version (`displayOrder`). | `DRAFT` / `ACTIVE` / `ARCHIVED` |
+| **Process Parameter** | Binds a global Parameter to a Process with `displayOrder`, `mandatory`, `visible`, `defaultValue`, `unit`, `minimumValue`, `maximumValue`. | `active` (soft-deleted) |
+| **Parameter** | A global reusable field definition (`name`, `inputType`, `description`, `active`). | `active` (soft-deleted) |
 
-| Component | Status |
-|-----------|--------|
-| `report/support/AbstractReportService` | Frozen |
-| `report/support/BaseReportMapper` | Frozen |
-| `report/support/ReportTypeMetadata` | Frozen |
-| `report/support/ReportNumberGenerator` (via metadata) | Frozen |
-| Common approval workflow / response mapping | Frozen |
+**Template publishing:** creating a module auto-creates an initial DRAFT version
+(v1). Creating a new version snapshots the latest `ACTIVE` version's processes
+and bindings into a new DRAFT. **Publishing** a DRAFT activates it, supersedes
+all other `ACTIVE` versions, and activates a `DRAFT` module.
 
-## Feature Completion — Report Template Configuration (completed)
+**Ordering:** `displayOrder` is the only ordering mechanism — for processes
+(step order) and for process parameters (field order). It is never inferred.
 
-Super Admin can now fully configure the parameters that make up each predefined
-report type's template. The existing `master/parameter` module was extended
-(additive; no report module or engine change):
+## 3. Report Engine Workflow
 
-- New attribute **`visible`** — whether the parameter shows on the report entry
-  form (default `true`).
-- New attribute **`defaultValue`** — value pre-filled when the parameter renders.
-- Entity `ParameterMaster`, DTOs (`CreateParameterRequest`,
-  `UpdateParameterRequest`, `ParameterResponse`) and `ParameterMasterService`
-  wired for the new attributes; `visible` is partial-update safe (null ignored)
-  and `defaultValue` always applied.
-- DB: `V7__Parameter_template_visible_default.sql` adds
-  `parameter_master.visible BOOLEAN NOT NULL DEFAULT TRUE` and
-  `parameter_master.default_value VARCHAR(255)`.
-- API unchanged (still `/api/parameters` CRUD + `GET /api/parameters/report-type/{type}`),
-  fully backward compatible. Documented in `API_DOCUMENTATION.md` (section 10).
+Executed via `/api/report-engine` (backend-authoritative):
 
-All 11 template attributes are now supported: `reportType`, `parameterName`,
-`displayOrder`, `inputType`, `mandatory`, `visible`, `unit`, `defaultValue`,
-`minValue`, `maxValue`, `active`.
+```
+Start
+  └─► freezes latest ACTIVE template version; shift auto-detected (or shiftId/lineId supplied)
+  └─► returns first Process step (ProcessParameterFields in displayOrder)
+Save / Next   (per process)
+  └─► validates mandatory visible fields (min/max, inputType)
+  └─► records values under a RecordedProcess (process-order snapshot)
+  └─► advances to the next Process by displayOrder
+Save & Submit (final process)
+  └─► records the final process, completes the session
+  └─► creates a Completed Report (SUBMITTED) with immutable snapshots
+```
 
-## Feature Completion — Dashboard APIs (completed)
+Sessions persist work-in-progress: a `ReportSession` may be left `IN_PROGRESS`
+and resumed (forward) later via its saved session id.
 
-All eight requested dashboard endpoints are implemented under
-`/api/reports/dashboard` (native SQL over a UNION of the six report tables;
-read-only, any authenticated user). Six already existed
-(`/summary`, `/reports-created-today`, `/reports-pending-approval`,
-`/reports-by-type`, `/reports-by-shift`, `/reports-by-line`,
-`/recent-reports`, `/monthly-statistics`); this sprint added the two gaps:
+## 4. Completed Features
 
-- **`GET /api/reports/dashboard/approval-summary`** — `ApprovalSummaryResponse`
-  (pending / approved / rejected totals, today's approved+rejected, approval rate).
-  Reuses the same `STATUS_UNION` table set as `/summary`; adds one
-  `status, approved_at` union for today's buckets — no duplicated queries.
-- **`GET /api/reports/dashboard/recent-activity?limit=N`** — `RecentActivityResponse`
-  lifecycle feed (CREATED from `created_at`/`created_by`, APPROVED/REJECTED from
-  `approved_at`/`approved_by`), ordered newest first.
+- **Authentication & authorization** — JWT access + refresh tokens, BCrypt,
+  roles `SUPER_ADMIN` / `ADMIN` / `OPERATOR`.
+- **User management** — create, update, activate/deactivate, delete, profile,
+  change password.
+- **Master data** — shifts (with automatic overnight-aware detection), lines,
+  module types, modules (with template versioning), processes, process
+  parameters, global parameters.
+- **Generic report engine** — start, save/next, save/submit, sessions, recorded
+  values, completed reports, my-sessions/my-reports.
+- **Dashboard** — 10 endpoints over the engine `report` table.
+- **Unified search** — `/api/search` across reports, users, and parameters.
+- **Analytics & KPIs** — 9 endpoints (overview, quality, consumption, process
+  stability, productivity, time trends, line/shift/operator performance).
+- **Attachments** — upload (single/multiple), view, download, preview, update,
+  delete, list.
+- **Notifications** — in-app inbox (list, unread, count, mark read/read-all,
+  delete).
+- **System settings** — CRUD + categories + bulk update.
+- **Integration center** — CRUD + enable/disable + test + execution history.
+- **Audit logs** — read-only listing, statistics, recent (no writer yet).
+- **Unified pagination & filtering** — `PageRequest`/`PageResponse` across all
+  list endpoints.
 
-Reusable aggregation helpers added to `DashboardService`: `unionFor(projection)`,
-`reportTables()`, and `activityUnion()` centralize the six-table UNION so future
-aggregations do not repeat table lists. All DTOs are lightweight and mobile-friendly.
+## 5. Implemented APIs
 
-Smoke-tested live: all 10 dashboard endpoints return 200; `./mvnw -o test` green.
-Documented in `API_DOCUMENTATION.md` (section 19).
+| Area | Base path |
+|------|-----------|
+| Authentication | `/api/auth` |
+| Users | `/api/users` |
+| Shifts | `/api/shifts` (+ `GET /api/shifts/current`) |
+| Lines | `/api/lines` |
+| Module types | `/api/module-types` |
+| Modules (+ template versions) | `/api/modules` |
+| Processes | `/api/processes` |
+| Process parameters | `/api/processes/{processId}/parameters` |
+| Global parameters | `/api/module-parameters` |
+| Report engine | `/api/report-engine` |
+| Dashboard | `/api/reports/dashboard` |
+| Unified search | `/api/search` |
+| Analytics | `/api/analytics` |
+| Attachments | `/api/attachments` |
+| Notifications | `/api/notifications` |
+| System settings | `/api/settings` |
+| Integration center | `/api/integrations` |
+| Audit logs | `/api/audit-logs` |
 
-## Feature Completion — Unified Pagination & Filtering (completed)
+118 HTTP endpoints across 18 controllers. Every endpoint, DTO, request/response
+shape, validation, and status code is documented in `API_DOCUMENTATION.md` and
+reflected in the committed `api-docs.json` (OpenAPI 3 snapshot, kept in sync).
 
-A reusable pagination + filtering framework now backs the system's list
-endpoints. Single contract, no duplicated pagination logic:
+## 6. Current Database Structure
 
-- **`common/pagination/PageRequest`** — the single request DTO (`page`, `size`,
-  `sortBy`, `sortDirection`, `keyword`). Module filters extend it:
-  `UserFilterRequest`, `ParameterFilterRequest`, `ReportFilterRequest`.
-- **`common/pagination/PageableResolver`** — builds Spring `Pageable`, clamps
-  `size` to 200, resolves `sortBy` from a per-module whitelist with fallback.
-- **`common/pagination/SpecificationBuilder`** — reusable JPA `Specification`
-  builder (keyword / equality / range / IN).
-- **`common/response/PageResponse<T>`** — the single paginated envelope
-  (unchanged, now shared everywhere).
+| Table | Purpose |
+|-------|---------|
+| `users` / `roles` / `refresh_token` | Identity, roles, auth tokens |
+| `shifts` / `line_master` | Master data (shift detection; production lines) |
+| `module_type` / `module` | Module hierarchy |
+| `module_template_version` | Versioned templates (DRAFT/ACTIVE/SUPERSEDED) |
+| `module_process` | Ordered process steps of a template version |
+| `parameter` | Global reusable parameter definitions |
+| `process_parameter` | Per-process parameter bindings (order, mandatory, visible, unit, min/max, default) |
+| `report_session` | Work-in-progress report sessions (frozen template version, shift/line, status) |
+| `recorded_process` | A recorded process within a session (process-order snapshot) |
+| `recorded_value` | Observed values + frozen parameter spec (name/unit/inputType/min/max) |
+| `report` | Completed reports (SUBMITTED) with immutable module/version/shift/line snapshots |
+| `system_settings` / `notifications` / `attachments` / `integration*` / `audit_logs` | Supporting platform tables |
 
-Applied to:
+## 7. Known Limitations
 
-| Endpoint | Filter | Notes |
-|----------|--------|-------|
-| `GET /api/users` | `UserFilterRequest` | keyword + role + active, sort whitelist |
-| `GET /api/parameters` | `ParameterFilterRequest` | keyword + reportType/inputType/active/visible |
-| `GET /api/reports/{module}` (6) | `ReportFilterRequest` | reportNumber/status/shift/line/date-range/approved/keyword; also serves the dashboard report-history listings |
+- **No approval workflow.** A completed report is created `SUBMITTED`;
+  approve/reject endpoints do not exist (`approved_at`/`approved_by` columns are
+  forward-compatible but unused).
+- **No report update / delete.** A completed report cannot be edited or deleted;
+  a session cannot step backwards to re-record a process.
+- **Audit logs are never written** by any code path (read model only).
+- **`contextLoads` integration test** requires a local PostgreSQL instance to
+  run (not available in the offline dev environment); all unit tests pass.
+- **Production hardening pending** — see `FEATURES_ROADMAP.md` §5.
 
-**Backward compatible:** no paging/filter params → the exact legacy full-list
-response; any paging/filter param → `PageResponse<T>`. The frozen report engine
-was extended **additively** (`AbstractReportService.doSearch`) alongside the
-untouched `doGetAll()`; report repositories were not merged.
+## 8. Pending Features
 
-Verified: `./mvnw -o test` green; live smoke test of users/parameters/all six
-report endpoints (paged + legacy + keyword + role + status + date-range); Swagger
-exposes the new query params on each endpoint.
+Not implemented; not scheduled. See `FEATURES_ROADMAP.md`.
 
-## Decision — Export is frontend-implemented (completed)
+- Approval workflow (approve / reject with remarks).
+- Report edit / reject → resubmit.
+- External notification channels (email/SMS/push).
+- Write-path audit logging.
+- Attachments per report entry.
+- Parameter-level analytics and per-module dashboard widgets.
 
-The backend provides **structured JSON APIs only**. PDF / Excel / CSV / print
-export is implemented by the frontend client. Applied by removing the backend
-export module:
+## 9. Test Status
 
-- Deleted the `export/` package (`ExportController`, `ExportService`,
-  `ExportStrategy` + CSV/XLSX/PDF impls, `ExportJob`, `ExportJobRepository`,
-  `ExportRequest`, `ExportJobResponse`) and the `ExportFormat` enum.
-- DB: `V8__Drop_export_jobs.sql` drops the `export_jobs` table (created in V5).
-- Purged export-only enum values: `AuditAction.EXPORT`,
-  `NotificationType.EXPORT_COMPLETED`, `AttachmentCategory.EXPORT_FILE` (no
-  existing DB rows referenced them) and their Swagger `allowableValues`.
-- Removed the Export tag / "export functionality" from `OpenApiConfig`.
-- Docs updated throughout. No report engine, dashboard, or completed module
-  behavior changed.
+`./mvnw -o test`:
 
-## Feature Completion — Global Search (completed)
+| Test class | Tests | Status |
+|------------|-------|--------|
+| `master.module.entity.ModuleDomainTest` | 4 | ✅ |
+| `master.module.service.TemplateVersionServiceTest` | 5 | ✅ |
+| `report.engine.service.GenericReportEngineServiceTest` | 10 | ✅ |
+| `report.globalsearch.util.UnifiedSearchQueryBuilderTest` | 5 | ✅ |
+| `CedOpsBackendApplicationTests.contextLoads` | 1 | ⚠️ requires local Postgres |
+| **Total** | **25** | **24 pass, 1 env-blocked** |
 
-A unified enterprise search experience over the shared pagination framework:
-
-- **`GET /api/search`** — unified search across **reports, users, and parameters**
-  (new `UnifiedSearchController`, `UnifiedSearchRequest extends PageRequest`,
-  `UnifiedSearchQueryBuilder`, `UnifiedSearchService`, lightweight
-  `UnifiedSearchResultItem`). Federates the six report tables + `users` +
-  `parameter_master` into one UNION with a `type` discriminator, paginated via
-  `PageResponse`, whitelisted sorting, optional filters: `type`, `keyword`,
-  `reportNumber`, `reportType`, `status`, `employeeName`, `role`, `shiftId`,
-  `lineId`, `dateFrom`, `dateTo`.
-- **`GET /api/reports/search`** — existing report-only search (legacy, unchanged
-  and fully backward compatible).
-- **`GET /api/reports/search/suggestions`** — now also returns **parameter name**
-  suggestions (new `parameters` field on `SearchSuggestionsResponse`; additive).
-
-Verified: `./mvnw -o test` green; live smoke test of unified search (all types,
-USER/REPORT/PARAMETER scoping, reportType+status, pagination, sorting,
-employeeName, suggestions incl. parameters); Swagger exposes `/api/search` with
-its full query-param surface.
-
-## Business Workflow Verification (completed)
-
-A full audit of every documented business action per role was performed against
-the feature-complete backend (no code changes). Full detail in
-`VERIFICATION_REPORT.md`.
-
-| Role | Capabilities verified | Implemented | Coverage |
-|------|-----------------------|-------------|----------|
-| Super Admin | 19 | 19 | **100%** |
-| Admin | 10 | 10 | **100%** |
-| Staff (OPERATOR) | 14 | 13 | **92.9%** |
-| **Overall** | **43** | **42** | **97.7%** |
-
-- **Single missing capability:** report **edit/resubmit** — no
-  `PUT`/`PATCH` on any of the 6 report controllers, so the reject → edit →
-  resubmit loop (Blueprint Phase 3) cannot run end-to-end. This also means
-  existing **drafts cannot be edited or resumed** — a report is created in one
-  request (stored as `DRAFT`) and thereafter only submitted, approved, rejected,
-  or deleted. Documented as a post-V1 roadmap item (Blueprint §8); consciously
-  deferred.
-- **Partially implemented:** audit trail is read-only (nothing writes
-  `audit_logs`); notifications are written by report and user/auth workflows
-  (via `NotificationChannel`) but there are no external channels (email/SMS/push);
-  `CreateShiftRequest` times lack `@NotNull`; no
-  `submittedBy`/`submittedAt`; report numbers use `count()+1` (race-prone);
-  MapStruct declared but unused.
-- **Production readiness gaps (non-blocking for frontend):** hardcoded DB creds
-  + `jwt.secret`, `ddl-auto=update` (should be `validate`), verbose SQL logging,
-  only 1 Spring-context test, no observability config, default credentials
-  `ADMIN001/admin123`.
-- **Recommendation:** **Ready for Frontend** — unless the client requires report
-  edit/resubmit in V1 (then that one item is **Needs Backend Work**). Clarify
-  with the client; the rest of the API is complete.
-
-## Other areas
-
-Auth, users, roles, master data (lines, shifts, parameters, report types),
-dashboard, global search, analytics, integrations, attachments,
-notifications, settings, audit-log — implemented; documented in
-`API_DOCUMENTATION.md` and `PROJECT_BLUEPRINT.md`.
-
-## Not implemented in Version 1 (documented)
-
-| Capability | Status |
-|---|---|
-| Edit an existing draft / resume draft / save draft changes | ✗ **Not supported** — no `PUT`/`PATCH` report endpoint |
-| Edit rejected report and resubmit (reject → edit → resubmit loop) | ✗ **Not supported** — no update/resubmit endpoint; the single business-workflow gap (see verification above) |
-
-## Planned (documented, NOT implemented)
-
-- none in progress
+`./mvnw -o compile` → BUILD SUCCESS.

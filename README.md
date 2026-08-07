@@ -1,50 +1,99 @@
 # CED Ops Backend
 
 CED Operations Management System — a Spring Boot REST API that digitizes
-manufacturing quality-inspection and shop-floor reporting: master data
-configuration, six predefined report types, an approval workflow, dashboards,
-analytics, and global search.
+manufacturing shop-floor quality and inspection reporting. It provides a
+**configuration-driven report engine** (module master data → versioned
+templates → process steps → recorded values), plus master data, dashboard,
+analytics, unified search, and supporting platform modules.
+
+There is **no report-specific Java code**: every report is defined by
+configuration, so new report types are added as data, never as code.
+
+- **Quick start:** see [Quick Start](#quick-start)
+- **API reference:** [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+- **OpenAPI (Swagger UI):** `/swagger-ui.html` · raw spec `/v3/api-docs`
+
+---
 
 ## Features
 
 - **Authentication & roles** — JWT access + refresh tokens, BCrypt, role-based
-  access control (SUPER_ADMIN / ADMIN / OPERATOR).
-- **Master data** — users, shifts (with automatic, overnight-aware shift
-  detection), production lines, and a fully configurable parameter catalog per
-  report type.
-- **Six standard report types** — Process Monitoring, Chemical Consumption,
-  Daily Startup Checklist, Daily Inspection, First Piece Inspection,
-  Pre-Delivery Inspection — all built on a shared report engine with a
-  consistent lifecycle.
-- **Approval workflow** — draft → submit → approve / reject with remarks.
-  **V1 limitation:** reports are created in one step and cannot be edited or
-  resumed afterwards; rejected reports cannot be edited/re-submitted (no report
-  update endpoint).
-- **Dashboard & analytics** — live overview, today's reports, pending
-  approvals, approval summary, recent activity, and KPI analytics.
-- **Global search** — one search across reports, users, and parameters.
+  access control (`SUPER_ADMIN` / `ADMIN` / `OPERATOR`).
+- **Configuration-driven report engine** — the report engine build an
+  Architecture hierarchy `Module Type → Module → Template Version → Process →
+  Process Parameter → (global) Parameter`. Work-in-progress is captured in a
+  **report session**; **Save & Submit** produces a **completed report** with
+  immutable snapshots of the configuration used at submit time.
+- **Template versioning** — every module is versioned; publishing a version
+  freezes it and supersedes earlier `ACTIVE` versions so historical reports keep
+  the exact specification they were recorded against.
+- **Automatic shift detection** — the backend assigns the current shift
+  (overnight shifts included) unless a shift/line is provided at start.
+- **Dashboard & analytics** — live overview, today's reports, approval summary,
+  recent activity, and KPI analytics — all read from the engine.
+- **Unified search** — one search across reports, users, and parameters.
 - **Unified pagination & filtering** — consistent list experience across every
   module.
-- **Attachments, notifications, settings, integration center, audit logs** —
-  supporting platform modules. Notifications are workflow-triggered in-app
-  (report created/submitted/approved/rejected, user created/welcome, password
-  changed).
+- **Supporting modules** — attachments, notifications, system settings,
+  integration center, audit logs.
 
-## Documentation Index
+## Architecture Overview
 
-| Document | Audience | Purpose |
-|----------|----------|---------|
-| [BUSINESS_FLOW.md](BUSINESS_FLOW.md) | Client, frontend, QA | Business functional specification — how the system is used (no implementation details) |
-| [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) | Backend, architects | Architecture, design decisions, report engine, database, security |
-| [API_DOCUMENTATION.md](API_DOCUMENTATION.md) | Backend, frontend, QA | Complete REST API reference — every endpoint, DTO, request/response |
-| [CURRENT_STATE.md](CURRENT_STATE.md) | All | Current implementation snapshot — what exists, limitations, pending work |
-| [FEATURES_ROADMAP.md](FEATURES_ROADMAP.md) | Product, all | V1 scope, completed features, future features, production roadmap |
-| [VERIFICATION_REPORT.md](VERIFICATION_REPORT.md) | QA, client | Business-workflow audit of the feature-complete V1 backend |
-| [CONSISTENCY_REPORT.md](CONSISTENCY_REPORT.md) | All | Documentation-vs-implementation consistency report (V1 capabilities, resolved contradictions, planned features) |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Ops | Deployment, environment variables, Docker Compose, production hardening |
+```
+HTTP / REST / JWT
+      │
+      ▼
+Controller ──► Service ──► Repository ──► PostgreSQL
+     │            │            │
+     └── DTOs ────┘            └── Flyway migrations
+```
 
-Suggested reading order: **README → BUSINESS_FLOW → PROJECT_BLUEPRINT →
-API_DOCUMENTATION → CURRENT_STATE → FEATURES_ROADMAP.**
+The domain is a single, generic data model — no per-report-type tables:
+
+```
+Module Type
+   ──1:N──► Module
+              ──1:N──► Template Version
+                          ──1:N──► Process
+                                      ──1:N──► Process Parameter ──M:1──► Parameter (global)
+
+Report execution (work-in-progress → permanent record):
+Report Session ──► Recorded Process (×1 per process) ──► Recorded Value
+   └── Save & Submit ──► Completed Report (immutable snapshots)
+```
+
+Report workflow (backend-authoritative; the frontend only renders each step):
+
+```
+Start → save / next (per process, ordered by displayOrder) → Save & Submit
+      → Completed Report (SUBMITTED with immutable snapshots)
+```
+
+## Folder Structure
+
+```
+src/main/java/com/aerotech/ced_ops_backend/
+├── analytics/          # Aggregated KPI metrics
+├── attachment/         # File upload/download management
+├── audit/              # Audit log read model
+├── auth/               # Authentication & authorization
+├── common/             # Base entities, enums, exceptions, config, pagination
+├── integration/        # External system connectors
+├── master/
+│   ├── line/           # Production line master data
+│   ├── shift/          # Shift master data + automatic shift detection
+│   └── module/         # Module hierarchy: module types, modules,
+│                       #   template versions, processes, global parameters
+├── notification/       # User notifications
+├── report/
+│   ├── engine/         # Generic report engine (sessions + completed reports)
+│   ├── dashboard/      # Dashboard summaries
+│   └── globalsearch/   # Unified search (reports/users/parameters)
+├── role/               # Role management
+├── security/           # JWT filter, security config, user details
+├── settings/           # System settings
+└── user/               # User management
+```
 
 ## Tech Stack
 
@@ -58,12 +107,8 @@ API_DOCUMENTATION → CURRENT_STATE → FEATURES_ROADMAP.**
 | **Auth** | JWT (access + refresh tokens), BCrypt |
 | **API Docs** | SpringDoc OpenAPI 2.8.9 |
 | **Build** | Maven (Maven Wrapper) |
-| **Containerization** | Docker Compose |
 
 ## Quick Start (Docker Compose)
-
-The fastest way to run the full stack. You only need Docker Desktop (or Docker +
-Docker Compose) — no Java or Maven installation required on your host.
 
 ```bash
 # 1. One-time setup — copy environment template
@@ -73,48 +118,37 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The app starts at `http://localhost:3000`.
+The app listens on `http://localhost:3000`.
 
 - **Swagger UI:** http://localhost:3000/swagger-ui.html
 - **OpenAPI JSON:** http://localhost:3000/v3/api-docs
-- **API reference:** `API_DOCUMENTATION.md` (hand-maintained; mirrors the source). No `api-docs.json` snapshot is committed — the OpenAPI spec is generated at runtime by SpringDoc. To produce one: start the app and run `curl http://localhost:3000/v3/api-docs -o api-docs.json`.
+- **API reference:** `API_DOCUMENTATION.md` (hand-maintained, mirrors the source).
+
+> The OpenAPI spec is generated at runtime by SpringDoc from the controllers. A
+> committed snapshot is kept at `api-docs.json` for frontend/QA tooling; refresh
+> it with the exported JSON path above whenever APIs change.
 
 ## Prerequisites
 
 - **Docker Desktop** (macOS/Windows) or **Docker + Docker Compose** (Linux)
 - *(Optional)* Java 21 JDK + Maven 3.9+ for running outside Docker
 
-## Folder Structure
+## Documentation Index
 
-```
-src/main/java/com/aerotech/ced_ops_backend/
-├── analytics/          # Aggregated metrics and dashboards
-├── attachment/         # File upload/download management
-├── audit/              # Audit logging (read model)
-├── auth/               # Authentication & authorization
-├── common/             # Base entities, enums, exceptions, config, pagination
-├── integration/        # External system connectors
-├── master/             # Master data (line, shift, parameter, report types)
-├── notification/       # User notifications
-├── report/             # Report engine + 6 report types + dashboard + search
-├── role/               # Role management
-├── security/           # JWT filter, security config, user details
-├── settings/           # System settings
-└── user/               # User management
-```
+| Document | Audience | Purpose |
+|----------|----------|---------|
+| [BUSINESS_FLOW.md](BUSINESS_FLOW.md) | Client, frontend, QA | Business functional specification — how the system is used (no implementation details) |
+| [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) | Backend, architects | Architecture, design decisions, report engine, database, security |
+| [API_DOCUMENTATION.md](API_DOCUMENTATION.md) | Backend, frontend, QA | Complete REST API reference — every endpoint, DTO, request/response |
+| [CURRENT_STATE.md](CURRENT_STATE.md) | All | Current implementation snapshot — what exists, limitations, pending work |
+| [FEATURES_ROADMAP.md](FEATURES_ROADMAP.md) | Product, all | V1 scope, planned enhancements, future ideas, production roadmap |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Ops | Deployment, environment variables, Docker Compose, production hardening |
+| [MIGRATION_PLAN.md](MIGRATION_PLAN.md) | Backend, architects | Historical record of the phased migration to the report engine |
 
-## Running the Project
+Suggested reading order: **README → BUSINESS_FLOW → PROJECT_BLUEPRINT →
+API_DOCUMENTATION → CURRENT_STATE → FEATURES_ROADMAP.**
 
-### Start / Stop / Reset
-
-```bash
-docker compose up --build        # build + start (use --build on first run)
-docker compose down              # stop, keep data
-docker compose down -v           # stop and delete database + uploads
-docker compose logs -f app       # follow app logs
-```
-
-### Run locally (without Docker)
+## Running Locally
 
 ```bash
 # 1. Start PostgreSQL
@@ -162,13 +196,17 @@ Migration files live in `src/main/resources/db/migration/`:
                    -Dflyway.password=postgres
 ```
 
-## Quality Status
+## Known Limitations
 
-- The business workflow of the feature-complete V1 backend was audited against
-  every documented capability per role: **42 of 43 (97.7%) fully implemented**.
-  The single gap is report **edit/resubmit** (no update endpoint yet — drafts
-  can't be edited/resumed and rejected reports can't be resubmitted). See
-  `VERIFICATION_REPORT.md` and `CURRENT_STATE.md`.
+- **No approval workflow yet** — a completed report begins in `SUBMITTED`;
+  approve/reject endpoints are not implemented (`approvedAt`/`approvedBy`
+  columns are forward-compatible).
+- **No report edit / re-run** — a completed report cannot be edited, a session
+  cannot step backwards, and there is no report update/delete endpoint.
+- **Audit logs are read-only** — nothing writes to `audit_logs` yet.
+- **Production hardening pending** — DB credentials are configured via
+  environment but `ddl-auto` is `update` (should be `validate` for prod) and
+  observability/metrics are not configured. See `FEATURES_ROADMAP.md` §5.
 - Default seeded Super Admin: `ADMIN001` / `admin123`. **Change this before
   production.**
 

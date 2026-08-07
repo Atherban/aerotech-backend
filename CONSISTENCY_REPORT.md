@@ -72,7 +72,7 @@ reinforced by the explicit note in `API_DOCUMENTATION.md` §5 and `README.md`.
 **READY FOR FRONTEND DEVELOPMENT (9.3 / 10).**
 
 - Every business workflow described in `BUSINESS_FLOW.md` maps to a documented
-  endpoint in `API_DOCUMENTATION.md` (130 operations / 56 path templates). No
+  endpoint in `API_DOCUMENTATION.md` (118 operations / 87 path templates). No
   documented workflow requires an endpoint that does not exist.
 - The only unimplemented behaviors (edit/resume draft, reject → edit →
   resubmit) are explicitly marked ✗ **Not supported in Version 1** / ⚠️ planned

@@ -25,10 +25,10 @@ public class OpenApiConfig {
                         .version("1.0.0")
                         .description(
                                 "RESTful API for the CED (Continuous Electro-Deposition) Operations management system. " +
-                                "This API provides endpoints for managing quality inspections, chemical consumption tracking, " +
-                                "daily startup and shutdown procedures, pre-delivery inspections, and operator performance analytics. " +
-                                "It supports the full inspection lifecycle including creation, " +
-                                "submission, approval workflows, and role-based access control.")
+                                "This API is built on a configuration-driven report engine: master data (module types, " +
+                                "modules, template versions, processes, process parameters, global parameters), report " +
+                                "sessions and completed reports, plus dashboard, unified search, and analytics over the " +
+                                "engine. It supports the full inspection lifecycle and role-based access control.")
                         .contact(new Contact()
                                 .name("AeroTech Support")
                                 .email("support@aerotech.com")
@@ -41,16 +41,24 @@ public class OpenApiConfig {
                         .url("/")
                         .description("Default Server URL"))
                 .tags(List.of(
-                        new Tag().name("Daily Inspection").description("Daily inspection report management"),
-                        new Tag().name("Chemical Consumption").description("Chemical consumption tracking and reporting"),
-                        new Tag().name("Daily Startup").description("Daily startup and shutdown procedure management"),
-                        new Tag().name("Pre-Delivery Inspection").description("Pre-delivery inspection management"),
-                        new Tag().name("Analytics").description("KPI dashboards and analytical reports"),
-                        new Tag().name("Audit Logs").description("System audit trail and activity logging"),
+                        new Tag().name("Module Type Master").description("Module type configuration"),
+                        new Tag().name("Module Master").description("Module and template version configuration"),
+                        new Tag().name("Process Master").description("Module process configuration"),
+                        new Tag().name("Process Parameter Master").description("Process parameter binding configuration"),
+                        new Tag().name("Global Parameter Master").description("Global reusable parameter configuration"),
+                        new Tag().name("Report Engine (Module-driven)").description("Configuration-driven report sessions and completed reports"),
+                        new Tag().name("Dashboard").description("Report dashboard KPIs and overviews"),
+                        new Tag().name("Unified Search").description("Cross-module search over reports, users and parameters"),
+                        new Tag().name("Analytics & KPIs").description("KPI dashboards and analytical reports"),
+                        new Tag().name("Line Master").description("Production line configuration"),
+                        new Tag().name("Shift Master").description("Shift configuration"),
+                        new Tag().name("User Management").description("User administration"),
+                        new Tag().name("Authentication").description("User authentication and authorization"),
+                        new Tag().name("Attachment Management").description("File attachments"),
+                        new Tag().name("Audit Trail").description("System audit trail and activity logging"),
                         new Tag().name("Notifications").description("User notification management"),
-                        new Tag().name("Settings").description("System configuration and settings"),
-                        new Tag().name("Global Search").description("Cross-module search functionality"),
-                        new Tag().name("Authentication").description("User authentication and authorization")))
+                        new Tag().name("System Settings").description("System configuration and settings"),
+                        new Tag().name("Integration Center").description("External system connectors")))
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
                 .components(new Components()
                         .addSecuritySchemes("bearerAuth", new SecurityScheme()
